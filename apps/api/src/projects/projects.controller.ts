@@ -55,6 +55,14 @@ export class ProjectsController {
     return this.projects.saveAsset(id, type, file);
   }
 
+  @Get(":id/assets/:assetId/file")
+  async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
+    const asset = await this.projects.findAsset(id, assetId);
+    if (!asset || !existsSync(asset.path)) throw new NotFoundException("Project asset file not found.");
+    response.setHeader("Content-Type", asset.mimeType);
+    return response.sendFile(asset.path);
+  }
+
   @Post(":id/scenes")
   createScene(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return this.projects.createScene(id, body);

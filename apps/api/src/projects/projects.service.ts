@@ -217,6 +217,10 @@ export class ProjectsService {
     });
   }
 
+  async findAsset(projectId: string, assetId: string) {
+    return this.prisma.asset.findFirst({ where: { id: assetId, projectId } });
+  }
+
   createScene(projectId: string, body: Record<string, unknown>) {
     return this.upsertScene(projectId, body);
   }
