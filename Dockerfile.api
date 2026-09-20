@@ -18,8 +18,8 @@ RUN cp apps/api/prisma/schema.postgres.prisma apps/api/prisma/schema.prisma
 ENV DATABASE_URL=postgresql://user:password@localhost:5432/video_studio
 RUN npm run build --workspace @fullpos-ad-studio/shared \
   && npm run build --workspace @fullpos-ad-studio/video \
-  && npm run build --workspace @fullpos-ad-studio/api \
   && npm run prisma:generate --workspace @fullpos-ad-studio/api \
+  && npm run build --workspace @fullpos-ad-studio/api \
   && npm prune --omit=dev
 
 FROM base AS runtime
