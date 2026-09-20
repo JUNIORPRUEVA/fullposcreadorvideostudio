@@ -14,6 +14,8 @@ import {
   FolderKanban,
   Gauge,
   Image as ImageIcon,
+  LogOut,
+  Menu,
   MousePointer,
   MoreVertical,
   Pencil,
@@ -442,9 +444,12 @@ export default function Home() {
   const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
   const [brandLogoPreview, setBrandLogoPreview] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     setAuthToken(window.localStorage.getItem("videoStudioToken") ?? "");
+    setSidebarExpanded(window.localStorage.getItem("videoStudioSidebar") === "expanded");
     void loadAuthStatus();
   }, []);
 
@@ -528,6 +533,24 @@ export default function Home() {
     setProjects([]);
     setBrands([]);
     setVideos([]);
+    setMobileSidebarOpen(false);
+  }
+
+  function toggleSidebar() {
+    setSidebarExpanded((current) => {
+      const next = !current;
+      window.localStorage.setItem("videoStudioSidebar", next ? "expanded" : "collapsed");
+      return next;
+    });
+  }
+
+  function navigateTo(nextSection: Section) {
+    setSection(nextSection);
+    setMobileSidebarOpen(false);
+  }
+
+  function openMobileSidebar() {
+    setMobileSidebarOpen(true);
   }
 
   async function refreshAll() {
@@ -1506,37 +1529,65 @@ export default function Home() {
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className={`shell ${sidebarExpanded ? "sidebarExpanded" : "sidebarCollapsed"} ${mobileSidebarOpen ? "mobileNavOpen" : ""}`}>
+      <div className="mobileScrim" role="presentation" onClick={() => setMobileSidebarOpen(false)} />
+      <aside className="sidebar" aria-label="Navegación principal">
         <div className="brand">
           <div className="brandMark">VS</div>
-          <div>
+          <div className="brandText">
             <strong>Video Studio</strong>
-            <div className="muted">Videos profesionales para publicidad, capacitación y contenido de marca.</div>
+            <div className="muted">Creador de videos</div>
           </div>
+          <button className="sidebarToggle mobileClose" type="button" aria-label="Cerrar menú" onClick={() => setMobileSidebarOpen(false)}>
+            <X size={20} />
+          </button>
         </div>
-        <nav className="nav">
-          {nav.map(([label, Icon]) => (
-            <button key={label} className={`navItem ${section === label ? "active" : ""}`} type="button" onClick={() => setSection(label)}>
-              <Icon size={18} />
-              {label}
+        <button className="sidebarToggle desktopToggle" type="button" aria-label={sidebarExpanded ? "Contraer menú" : "Expandir menú"} title={sidebarExpanded ? "Contraer menú" : "Expandir menú"} onClick={toggleSidebar}>
+          {sidebarExpanded ? <ChevronLeft size={20} /> : <Menu size={20} />}
+        </button>
+        <nav className="nav" aria-label="Secciones">
+          {nav.filter(([label]) => label !== "Configuración").map(([label, Icon]) => (
+            <button key={label} className={`navItem ${section === label ? "active" : ""}`} type="button" aria-label={label} title={label} onClick={() => navigateTo(label)}>
+              <Icon size={21} strokeWidth={2} />
+              <span className="navLabel">{label}</span>
+              <span className="navTooltip" aria-hidden="true">{label}</span>
             </button>
           ))}
+        </nav>
+        <div className="sidebarSpacer" />
+        <nav className="nav navBottom" aria-label="Ajustes">
+          {nav.filter(([label]) => label === "Configuración").map(([label, Icon]) => (
+            <button key={label} className={`navItem ${section === label ? "active" : ""}`} type="button" aria-label={label} title={label} onClick={() => navigateTo(label)}>
+              <Icon size={21} strokeWidth={2} />
+              <span className="navLabel">{label}</span>
+              <span className="navTooltip" aria-hidden="true">{label}</span>
+            </button>
+          ))}
+          {authStatus?.authRequired ? (
+            <button className="navItem" type="button" aria-label="Salir" title="Salir" onClick={logout}>
+              <LogOut size={21} strokeWidth={2} />
+              <span className="navLabel">Salir</span>
+              <span className="navTooltip" aria-hidden="true">Salir</span>
+            </button>
+          ) : null}
         </nav>
       </aside>
 
       <main className="main">
         <section className="topbar">
+          <button className="mobileMenuButton secondary iconButton" type="button" aria-label="Abrir menú" onPointerDown={openMobileSidebar} onMouseDown={openMobileSidebar} onClick={openMobileSidebar}>
+            <Menu size={20} />
+          </button>
           <div className="title">
             <h1>{section}</h1>
-            <p>{sectionSubtitle(section)}</p>
+            {sectionSubtitle(section) ? <p>{sectionSubtitle(section)}</p> : null}
           </div>
           <div className="rowActions">
             <button className="primary" type="button" onClick={resetDraft}>
               <Plus size={18} />
               Crear video
             </button>
-            {authStatus?.authRequired ? <button className="secondary" type="button" onClick={logout}>Salir</button> : null}
+            {authStatus?.authRequired ? <button className="secondary headerLogout" type="button" onClick={logout}><LogOut size={18} />Salir</button> : null}
           </div>
         </section>
 
@@ -2925,10 +2976,10 @@ function minutesUntil(value?: string) {
 }
 
 function sectionSubtitle(section: Section) {
-  if (section === "Dashboard") return "Resumen local del estudio y actividad reciente.";
-  if (section === "Crear video") return "Crea publicidad, tutoriales, cursos, soporte y contenido de marca.";
-  if (section === "Proyectos") return "Abre, duplica o elimina proyectos locales.";
-  if (section === "Videos") return "Revisa, abre y descarga videos generados.";
-  if (section === "Marcas") return "Administra perfiles visuales, voz, música y activos por empresa.";
-  return "Ajustes locales de audio y generación.";
+  if (section === "Dashboard") return "Actividad reciente del estudio.";
+  if (section === "Crear video") return "Configura, edita y exporta.";
+  if (section === "Proyectos") return "Borradores y trabajos guardados.";
+  if (section === "Videos") return "Renders listos para revisar.";
+  if (section === "Marcas") return "Perfiles visuales reutilizables.";
+  return "Preferencias del estudio.";
 }
