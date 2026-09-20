@@ -77,7 +77,7 @@ export class RendersController {
     if (!job?.outputPath || job.status !== "COMPLETED" || !existsSync(job.outputPath)) {
       throw new NotFoundException("Rendered file not found.");
     }
-    return response.download(job.outputPath, "fullpos-ad-studio.mp4");
+    return response.download(job.outputPath, path.basename(job.outputPath));
   }
 
   @Get(":id/stream")

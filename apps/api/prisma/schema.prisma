@@ -84,10 +84,30 @@ model VideoScene {
   type      String
   order     Int
   chapter   String?
+  chapterTitleEnabled Boolean @default(false)
   title     String
   duration  Float
+  durationMode String @default("AUTO")
   narrationScript String?
+  voiceProfile String?
+  narrationStyle String?
+  narrationAudioPath String?
+  narrationHash String?
+  narrationDurationSeconds Float?
+  narrationUpdatedAt DateTime?
   assetRefs String?
+  mediaAssetId String?
+  trimStartSeconds Float?
+  trimEndSeconds Float?
+  sourceAudioEnabled Boolean @default(false)
+  scale Float @default(1)
+  positionX Float @default(0.5)
+  positionY Float @default(0.5)
+  cropTop Float @default(0)
+  cropRight Float @default(0)
+  cropBottom Float @default(0)
+  cropLeft Float @default(0)
+  customSubtitles String?
   transition String?
   animation String?
   createdAt DateTime @default(now())

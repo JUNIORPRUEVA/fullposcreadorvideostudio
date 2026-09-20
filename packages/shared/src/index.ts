@@ -1,5 +1,7 @@
 export const PRODUCT_NAME = "Video Studio";
 
+export * from "./training-engine.js";
+
 export const allowedAssetMimeTypes = [
   "image/png",
   "image/jpeg",
@@ -51,10 +53,17 @@ export type RenderStatus = "QUEUED" | "RENDERING" | "COMPLETED" | "FAILED";
 export type AdFormat = "9:16" | "16:9" | "1:1" | "4:5";
 
 export interface FocusKeyframe {
-  time: number;
+  time?: number;
+  timeSeconds?: number;
   x: number;
   y: number;
   scale: number;
+}
+
+export interface CustomSubtitleCue {
+  start: number;
+  end: number;
+  text: string;
 }
 
 export interface VideoScene {
@@ -63,21 +72,49 @@ export interface VideoScene {
   type: SceneType;
   order: number;
   chapter?: string;
+  chapterTitleEnabled?: boolean;
   title: string;
   duration: number;
+  durationMode?: "AUTO" | "MANUAL";
   narrationScript?: string;
+  voiceProfile?: string;
+  narrationStyle?: NarrationStyle;
+  narrationAudioPath?: string;
+  narrationDurationSeconds?: number;
   assetRefs?: string[];
+  mediaAssetId?: string;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
+  sourceAudioEnabled?: boolean;
+  scale?: number;
+  positionX?: number;
+  positionY?: number;
+  crop?: {
+    top?: number;
+    right?: number;
+    bottom?: number;
+    left?: number;
+  };
+  customSubtitles?: CustomSubtitleCue[];
   transition?: string;
   animation?: {
     focus?: FocusKeyframe[];
     callouts?: Array<{
-      type: "HighlightBox" | "ArrowCallout" | "CircleCallout" | "TextCallout" | "StepBadge" | "CursorPulse";
+      type: "HighlightBox" | "ArrowCallout" | "CircleCallout" | "SpotlightCallout" | "TextCallout" | "StepBadge" | "CursorPulse" | "BlurRegion";
       label?: string;
       x: number;
       y: number;
+      startX?: number;
+      startY?: number;
+      endX?: number;
+      endY?: number;
       width?: number;
       height?: number;
       at?: number;
+      startTime?: number;
+      endTime?: number;
+      style?: "outline" | "soft-glow" | "dim-outside" | "straight" | "curved";
+      animation?: "appear" | "pulse-once" | "static" | "draw-on";
     }>;
   };
 }

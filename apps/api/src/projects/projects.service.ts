@@ -144,10 +144,26 @@ export class ProjectsService {
             type: scene.type,
             order: scene.order,
             chapter: scene.chapter,
+            chapterTitleEnabled: scene.chapterTitleEnabled,
             title: scene.title,
             duration: scene.duration,
+            durationMode: scene.durationMode,
             narrationScript: scene.narrationScript,
+            voiceProfile: scene.voiceProfile,
+            narrationStyle: scene.narrationStyle,
             assetRefs: scene.assetRefs,
+            mediaAssetId: scene.mediaAssetId,
+            trimStartSeconds: scene.trimStartSeconds,
+            trimEndSeconds: scene.trimEndSeconds,
+            sourceAudioEnabled: scene.sourceAudioEnabled,
+            scale: scene.scale,
+            positionX: scene.positionX,
+            positionY: scene.positionY,
+            cropTop: scene.cropTop,
+            cropRight: scene.cropRight,
+            cropBottom: scene.cropBottom,
+            cropLeft: scene.cropLeft,
+            customSubtitles: scene.customSubtitles,
             transition: scene.transition,
             animation: scene.animation
           }))
@@ -206,7 +222,8 @@ export class ProjectsService {
   }
 
   async updateScene(projectId: string, sceneId: string, body: Record<string, unknown>) {
-    await this.findOne(projectId);
+    const project = await this.findOne(projectId);
+    validateSceneTrim(project.assets, body);
     return this.prisma.videoScene.update({
       where: { id: sceneId },
       data: sceneData(body)
@@ -223,10 +240,26 @@ export class ProjectsService {
         type: scene.type,
         order: scene.order + 1,
         chapter: scene.chapter,
+        chapterTitleEnabled: scene.chapterTitleEnabled,
         title: `${scene.title} copia`,
         duration: scene.duration,
+        durationMode: scene.durationMode,
         narrationScript: scene.narrationScript,
+        voiceProfile: scene.voiceProfile,
+        narrationStyle: scene.narrationStyle,
         assetRefs: scene.assetRefs,
+        mediaAssetId: scene.mediaAssetId,
+        trimStartSeconds: scene.trimStartSeconds,
+        trimEndSeconds: scene.trimEndSeconds,
+        sourceAudioEnabled: scene.sourceAudioEnabled,
+        scale: scene.scale,
+        positionX: scene.positionX,
+        positionY: scene.positionY,
+        cropTop: scene.cropTop,
+        cropRight: scene.cropRight,
+        cropBottom: scene.cropBottom,
+        cropLeft: scene.cropLeft,
+        customSubtitles: scene.customSubtitles,
         transition: scene.transition,
         animation: scene.animation
       }
@@ -247,7 +280,8 @@ export class ProjectsService {
   }
 
   private async upsertScene(projectId: string, body: Record<string, unknown>) {
-    await this.findOne(projectId);
+    const project = await this.findOne(projectId);
+    validateSceneTrim(project.assets, body);
     return this.prisma.videoScene.create({
       data: {
         projectId,
@@ -351,17 +385,51 @@ function defaultScenesFor(videoType: string) {
 }
 
 function sceneData(body: Record<string, unknown>) {
+  const animation = typeof body.animation === "object" && body.animation ? normalizeSceneJson(body.animation) : typeof body.animation === "string" ? body.animation : undefined;
+  const customSubtitles = Array.isArray(body.customSubtitles) ? normalizeSceneJson(body.customSubtitles) : typeof body.customSubtitles === "string" ? body.customSubtitles : undefined;
   return {
     type: typeof body.type === "string" ? body.type : "SCREENSHOT",
     order: typeof body.order === "number" ? body.order : 1,
     chapter: typeof body.chapter === "string" ? body.chapter : undefined,
+    chapterTitleEnabled: typeof body.chapterTitleEnabled === "boolean" ? body.chapterTitleEnabled : undefined,
     title: typeof body.title === "string" ? body.title : "Nueva escena",
     duration: typeof body.duration === "number" ? body.duration : 5,
+    durationMode: body.durationMode === "MANUAL" ? "MANUAL" : typeof body.durationMode === "string" ? "AUTO" : undefined,
     narrationScript: typeof body.narrationScript === "string" ? body.narrationScript : undefined,
+    voiceProfile: typeof body.voiceProfile === "string" ? body.voiceProfile : undefined,
+    narrationStyle: typeof body.narrationStyle === "string" ? body.narrationStyle : undefined,
     assetRefs: Array.isArray(body.assetRefs) ? JSON.stringify(body.assetRefs) : typeof body.assetRefs === "string" ? body.assetRefs : undefined,
+    mediaAssetId: typeof body.mediaAssetId === "string" ? body.mediaAssetId : undefined,
+    trimStartSeconds: typeof body.trimStartSeconds === "number" ? body.trimStartSeconds : undefined,
+    trimEndSeconds: typeof body.trimEndSeconds === "number" ? body.trimEndSeconds : undefined,
+    sourceAudioEnabled: typeof body.sourceAudioEnabled === "boolean" ? body.sourceAudioEnabled : undefined,
+    scale: typeof body.scale === "number" ? body.scale : undefined,
+    positionX: typeof body.positionX === "number" ? body.positionX : undefined,
+    positionY: typeof body.positionY === "number" ? body.positionY : undefined,
+    cropTop: typeof body.cropTop === "number" ? body.cropTop : undefined,
+    cropRight: typeof body.cropRight === "number" ? body.cropRight : undefined,
+    cropBottom: typeof body.cropBottom === "number" ? body.cropBottom : undefined,
+    cropLeft: typeof body.cropLeft === "number" ? body.cropLeft : undefined,
+    customSubtitles,
     transition: typeof body.transition === "string" ? body.transition : "smooth",
-    animation: typeof body.animation === "object" && body.animation ? JSON.stringify(body.animation) : undefined
+    animation
   };
+}
+
+function normalizeSceneJson(value: unknown) {
+  return JSON.stringify(value);
+}
+
+function validateSceneTrim(assets: Array<{ id: string; type: string; durationSeconds: number | null }>, body: Record<string, unknown>) {
+  const start = typeof body.trimStartSeconds === "number" ? body.trimStartSeconds : undefined;
+  const end = typeof body.trimEndSeconds === "number" ? body.trimEndSeconds : undefined;
+  if (start === undefined && end === undefined) return;
+  const mediaAssetId = typeof body.mediaAssetId === "string" ? body.mediaAssetId : undefined;
+  const asset = mediaAssetId ? assets.find((item) => item.id === mediaAssetId || item.type === mediaAssetId) : assets.find((item) => item.type === "screen_recording" || item.type === "video");
+  const duration = asset?.durationSeconds ?? undefined;
+  if (start !== undefined && start < 0) throw new Error("trimStartSeconds must be greater than or equal to 0.");
+  if (end !== undefined && start !== undefined && end <= start) throw new Error("trimEndSeconds must be greater than trimStartSeconds.");
+  if (duration !== undefined && end !== undefined && end > duration) throw new Error("trimEndSeconds exceeds source duration.");
 }
 
 async function probeVideo(filePath: string) {

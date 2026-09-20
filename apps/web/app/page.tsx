@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Copy,
   Download,
@@ -182,9 +184,29 @@ type StoryScene = {
   type: string;
   order: number;
   chapter?: string;
+  chapterTitleEnabled?: boolean;
   title: string;
   duration: number;
+  durationMode?: "AUTO" | "MANUAL";
   narrationScript?: string;
+  voiceProfile?: string;
+  narrationStyle?: Draft["narrationStyle"];
+  mediaAssetId?: string;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
+  sourceAudioEnabled?: boolean;
+  scale?: number;
+  positionX?: number;
+  positionY?: number;
+  cropTop?: number;
+  cropRight?: number;
+  cropBottom?: number;
+  cropLeft?: number;
+  customSubtitles?: Array<{ start: number; end: number; text: string }>;
+  animation?: {
+    focus?: Array<{ timeSeconds: number; x: number; y: number; scale: number }>;
+    callouts?: Array<Record<string, unknown>>;
+  };
 };
 
 type Draft = {
@@ -362,6 +384,7 @@ export default function Home() {
   const [mixPreviewUrl, setMixPreviewUrl] = useState("");
   const [stylePreviewUrl, setStylePreviewUrl] = useState("");
   const [hybridPreviewUrl, setHybridPreviewUrl] = useState("");
+  const [trainingPreviewUrl, setTrainingPreviewUrl] = useState("");
   const [customMusicUrl, setCustomMusicUrl] = useState("");
   const [activeAudio, setActiveAudio] = useState<HTMLAudioElement | null>(null);
   const [activePreview, setActivePreview] = useState("");
@@ -1026,6 +1049,66 @@ export default function Home() {
     }
   }
 
+  async function updateScene(sceneId: string, patch: Partial<StoryScene>) {
+    if (!projectId) return;
+    try {
+      setBusy(`scene-update-${sceneId}`);
+      await fetchJson(`${API_URL}/projects/${projectId}/scenes/${sceneId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      await refreshAll();
+      show("success", "Escena actualizada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function moveScene(sceneId: string, direction: -1 | 1) {
+    if (!projectId || !selectedProject?.scenes?.length) return;
+    const scenes = [...selectedProject.scenes].sort((a, b) => a.order - b.order);
+    const index = scenes.findIndex((scene) => scene.id === sceneId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= scenes.length) return;
+    [scenes[index], scenes[target]] = [scenes[target], scenes[index]];
+    try {
+      setBusy(`scene-move-${sceneId}`);
+      await fetchJson(`${API_URL}/projects/${projectId}/scenes/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: scenes.map((scene) => scene.id) })
+      });
+      await refreshAll();
+      show("success", "Orden actualizado.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function previewTrainingScene(sceneId?: string, chapter?: string) {
+    if (!projectId) return show("info", "Guarda o abre un proyecto para previsualizar.");
+    try {
+      setBusy(sceneId ? `scene-preview-${sceneId}` : "chapter-preview");
+      const endpoint = draft.videoType === "COURSE" || draft.format === "16:9" ? "course-scene-preview" : "quick-tutorial-preview";
+      const preview = await fetchJson<{ streamUrl: string }>(`${API_URL}/renders/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, sceneId, chapter })
+      });
+      setTrainingPreviewUrl(`${API_URL}${preview.streamUrl}`);
+      show("success", sceneId ? "Vista previa de escena generada." : "Vista previa de capítulo generada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function openProject(project: Project) {
     setProjectId(project.id);
     setDraft(projectToDraft(project));
@@ -1194,7 +1277,7 @@ export default function Home() {
 
               {step === 1 && <VideoTypeStep draft={draft} brands={brands} onSelectBrand={selectBrand} onSelect={selectVideoType} />}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} />}
               {step === 4 && (
                 <>
                   <FormatStep draft={draft} setDraft={setDraft} busy={busy} stylePreviewUrl={stylePreviewUrl} onPreviewStyle={previewStyle} />
@@ -1362,8 +1445,49 @@ function InfoStep({ draft, setDraft }: { draft: Draft; setDraft: (draft: Draft) 
   );
 }
 
-function StoryboardStep({ project, busy, onAddScene, onDuplicateScene, onDeleteScene }: { project?: Project; busy: string | null; onAddScene: () => void; onDuplicateScene: (sceneId: string) => void; onDeleteScene: (sceneId: string) => void }) {
-  const scenes = project?.scenes ?? [];
+function StoryboardStep({
+  project,
+  busy,
+  previewUrl,
+  onAddScene,
+  onDuplicateScene,
+  onDeleteScene,
+  onUpdateScene,
+  onMoveScene,
+  onPreviewScene,
+  onPreviewChapter
+}: {
+  project?: Project;
+  busy: string | null;
+  previewUrl: string;
+  onAddScene: () => void;
+  onDuplicateScene: (sceneId: string) => void;
+  onDeleteScene: (sceneId: string) => void;
+  onUpdateScene: (sceneId: string, patch: Partial<StoryScene>) => void;
+  onMoveScene: (sceneId: string, direction: -1 | 1) => void;
+  onPreviewScene: (sceneId: string) => void;
+  onPreviewChapter: (chapter: string) => void;
+}) {
+  const scenes = [...(project?.scenes ?? [])].sort((a, b) => a.order - b.order);
+  const [selectedId, setSelectedId] = useState<string>("");
+  const selected = scenes.find((scene) => scene.id === selectedId) ?? scenes[0];
+  const chapters = Array.from(new Set(scenes.map((scene) => scene.chapter).filter(Boolean))) as string[];
+  function patchSelected(patch: Partial<StoryScene>) {
+    if (selected) onUpdateScene(selected.id, patch);
+  }
+  function addFocus() {
+    if (!selected) return;
+    const focus = selected.animation?.focus ?? [];
+    patchSelected({ animation: { ...(selected.animation ?? {}), focus: [...focus, { timeSeconds: selected.duration / 2, x: 0.5, y: 0.5, scale: 1.6 }] } });
+  }
+  function addCallout(type: string) {
+    if (!selected) return;
+    const callouts = selected.animation?.callouts ?? [];
+    const next = type === "ArrowCallout"
+      ? { type, label: "Indicación", x: 960, y: 520, startX: 620, startY: 360, endX: 960, endY: 520, startTime: 1, endTime: Math.max(2, selected.duration - 1) }
+      : { type, label: type === "BlurRegion" ? "" : "Importante", x: 600, y: 360, width: 360, height: 120, startTime: 1, endTime: Math.max(2, selected.duration - 1), style: type === "HighlightBox" ? "soft-glow" : "outline" };
+    patchSelected({ animation: { ...(selected.animation ?? {}), callouts: [...callouts, next] } });
+  }
   return (
     <div className="sectionBlock">
       <div className="sectionHeader">
@@ -1372,25 +1496,69 @@ function StoryboardStep({ project, busy, onAddScene, onDuplicateScene, onDeleteS
           <p className="muted">Organiza escenas, capítulos, narración y foco visual sin una línea de tiempo compleja.</p>
         </div>
       </div>
-      <div className="storyboard">
-        {scenes.length === 0 ? <p className="muted">Guarda el proyecto para crear el storyboard inicial según el tipo de video.</p> : null}
-        {scenes.map((scene) => (
-          <div className="storyCard" key={scene.id}>
-            <span>{scene.order}</span>
-            <div>
-              <strong>{scene.title}</strong>
-              <small>{scene.chapter ?? scene.type} · {scene.duration}s</small>
-              {scene.narrationScript ? <p>{scene.narrationScript}</p> : null}
+      <div className="trainingEditor">
+        <div className="storyboard">
+          {scenes.length === 0 ? <p className="muted">Guarda el proyecto para crear el storyboard inicial según el tipo de video.</p> : null}
+          {scenes.map((scene, index) => (
+            <div className={`storyCard ${selected?.id === scene.id ? "selected" : ""}`} key={scene.id} onClick={() => setSelectedId(scene.id)}>
+              <span>{scene.order}</span>
+              <div>
+                <strong>{scene.title}</strong>
+                <small>{scene.chapter ?? scene.type} · {scene.duration}s</small>
+                {scene.narrationScript ? <p>{scene.narrationScript}</p> : null}
+              </div>
+              <div className="rowActions">
+                <button className="secondary iconButton" type="button" disabled={index === 0 || busy === `scene-move-${scene.id}`} onClick={(event) => { event.stopPropagation(); onMoveScene(scene.id, -1); }} title="Subir"><ChevronLeft size={15} /></button>
+                <button className="secondary iconButton" type="button" disabled={index === scenes.length - 1 || busy === `scene-move-${scene.id}`} onClick={(event) => { event.stopPropagation(); onMoveScene(scene.id, 1); }} title="Bajar"><ChevronRight size={15} /></button>
+                <button className="secondary iconButton" type="button" disabled={busy === `scene-duplicate-${scene.id}`} onClick={(event) => { event.stopPropagation(); onDuplicateScene(scene.id); }} title="Duplicar escena"><Copy size={15} /></button>
+                <button className="danger iconButton" type="button" disabled={busy === `scene-delete-${scene.id}`} onClick={(event) => { event.stopPropagation(); onDeleteScene(scene.id); }} title="Eliminar escena"><Trash2 size={15} /></button>
+              </div>
             </div>
-            <div className="rowActions">
-              <button className="secondary iconButton" type="button" disabled={busy === `scene-duplicate-${scene.id}`} onClick={() => onDuplicateScene(scene.id)} title="Duplicar escena"><Copy size={15} /></button>
-              <button className="danger iconButton" type="button" disabled={busy === `scene-delete-${scene.id}`} onClick={() => onDeleteScene(scene.id)} title="Eliminar escena"><Trash2 size={15} /></button>
+          ))}
+          <button className="secondary" type="button" disabled={busy === "scene-add"} onClick={onAddScene}><Plus size={16} />Agregar escena</button>
+          <div className="chapterList">
+            <strong>Capítulos</strong>
+            {chapters.map((chapter) => <button key={chapter} className="secondary" type="button" onClick={() => onPreviewChapter(chapter)}><Play size={14} />{chapter}</button>)}
+          </div>
+        </div>
+        <div className="trainingPreview">
+          {previewUrl ? <video controls src={previewUrl} /> : <div className="assetPlaceholder"><Play size={34} />Vista previa de escena o capítulo</div>}
+        </div>
+        {selected ? (
+          <div className="sceneProperties">
+            <div className="tabs"><span>Contenido</span><span>Encuadre</span><span>Anotaciones</span><span>Narración</span><span>Subtítulos</span></div>
+            <label className="field"><span>Tipo</span><select value={selected.type} onChange={(event) => patchSelected({ type: event.target.value })}>{["TITLE", "CHAPTER", "SCREENSHOT", "SCREEN_RECORDING", "CALLOUT", "TEXT", "SUMMARY", "BRAND_INTRO", "BRAND_OUTRO", "CTA", "VIDEO", "IMAGE"].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+            <Field label="Título" value={selected.title} onChange={(title) => patchSelected({ title })} />
+            <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} />
+            <label className="field"><span>Duración</span><input type="number" min="1" step="0.5" value={selected.duration} onChange={(event) => patchSelected({ duration: Number(event.target.value) })} /></label>
+            <label className="field"><span>Modo duración</span><select value={selected.durationMode ?? "AUTO"} onChange={(event) => patchSelected({ durationMode: event.target.value as StoryScene["durationMode"] })}><option value="AUTO">AUTO</option><option value="MANUAL">MANUAL</option></select></label>
+            <Toggle label="Tarjeta de capítulo" checked={Boolean(selected.chapterTitleEnabled)} onChange={(chapterTitleEnabled) => patchSelected({ chapterTitleEnabled })} />
+            <div className="formGrid compact">
+              <label className="field"><span>Inicio trim</span><input type="number" min="0" step="0.1" value={selected.trimStartSeconds ?? 0} onChange={(event) => patchSelected({ trimStartSeconds: Number(event.target.value) })} /></label>
+              <label className="field"><span>Fin trim</span><input type="number" min="0" step="0.1" value={selected.trimEndSeconds ?? selected.duration} onChange={(event) => patchSelected({ trimEndSeconds: Number(event.target.value) })} /></label>
+              <Toggle label="Audio original" checked={Boolean(selected.sourceAudioEnabled)} onChange={(sourceAudioEnabled) => patchSelected({ sourceAudioEnabled })} />
+            </div>
+            <div className="formGrid compact">
+              <label className="field"><span>Zoom</span><input type="number" min="0.5" max="4" step="0.05" value={selected.scale ?? 1} onChange={(event) => patchSelected({ scale: Number(event.target.value) })} /></label>
+              <label className="field"><span>X</span><input type="number" min="0" max="1" step="0.01" value={selected.positionX ?? 0.5} onChange={(event) => patchSelected({ positionX: Number(event.target.value) })} /></label>
+              <label className="field"><span>Y</span><input type="number" min="0" max="1" step="0.01" value={selected.positionY ?? 0.5} onChange={(event) => patchSelected({ positionY: Number(event.target.value) })} /></label>
+              <button className="secondary" type="button" onClick={() => patchSelected({ scale: 1, positionX: 0.5, positionY: 0.5, cropTop: 0, cropRight: 0, cropBottom: 0, cropLeft: 0 })}>Restablecer encuadre</button>
+            </div>
+            <div className="buttonRow">
+              <button className="secondary" type="button" onClick={addFocus}><Plus size={14} />Añadir enfoque</button>
+              <button className="secondary" type="button" onClick={() => addCallout("HighlightBox")}>Highlight</button>
+              <button className="secondary" type="button" onClick={() => addCallout("ArrowCallout")}>Flecha</button>
+              <button className="secondary" type="button" onClick={() => addCallout("SpotlightCallout")}>Spotlight</button>
+              <button className="secondary" type="button" onClick={() => addCallout("BlurRegion")}>Blur</button>
+              <button className="secondary" type="button" onClick={() => addCallout("CursorPulse")}>Click</button>
+            </div>
+            <label className="field full"><span>Narración de escena</span><textarea rows={4} value={selected.narrationScript ?? ""} onChange={(event) => patchSelected({ narrationScript: event.target.value })} /></label>
+            <label className="field full"><span>Subtítulos personalizados JSON</span><textarea rows={3} value={JSON.stringify(selected.customSubtitles ?? [], null, 0)} onChange={(event) => { try { patchSelected({ customSubtitles: JSON.parse(event.target.value) }); } catch { /* keep typing */ } }} /></label>
+            <div className="buttonRow">
+              <button className="primary" type="button" disabled={busy === `scene-preview-${selected.id}`} onClick={() => onPreviewScene(selected.id)}><Play size={16} />Vista previa de escena</button>
             </div>
           </div>
-        ))}
-      </div>
-      <div className="buttonRow">
-        <button className="secondary" type="button" disabled={busy === "scene-add"} onClick={onAddScene}><Plus size={16} />Agregar escena</button>
+        ) : null}
       </div>
     </div>
   );

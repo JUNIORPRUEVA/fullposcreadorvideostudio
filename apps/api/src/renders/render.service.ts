@@ -108,6 +108,7 @@ export class RenderService {
     const assets: Partial<Record<AssetType, string>> = {};
     for (const asset of project?.assets ?? []) {
       assets[asset.type as AssetType] = asset.path;
+      (assets as Record<string, string>)[asset.id] = asset.path;
     }
 
     const root = process.cwd();
@@ -190,29 +191,26 @@ export class RenderService {
     const assets: Partial<Record<AssetType, string>> = {};
     for (const asset of project?.assets ?? []) {
       assets[asset.type as AssetType] = asset.path;
+      (assets as Record<string, string>)[asset.id] = asset.path;
     }
     const root = process.cwd();
     const demoRoot = path.join(root, "assets", "demo", "e2e");
-    const scenesList = (project?.scenes ?? []).map((scene) => ({
-      id: scene.id,
-      projectId: scene.projectId,
-      type: scene.type as RenderPayload["scenesList"] extends Array<infer T> ? T extends { type: infer U } ? U : never : never,
-      order: scene.order,
-      chapter: scene.chapter ?? undefined,
-      title: scene.title,
-      duration: scene.duration,
-      narrationScript: scene.narrationScript ?? undefined,
-      assetRefs: scene.assetRefs ? safeJsonArray(scene.assetRefs) : undefined,
-      transition: scene.transition ?? undefined,
-      animation: scene.animation ? safeJsonObject(scene.animation) : undefined
-    })) as RenderPayload["scenesList"];
+    const sceneId = typeof body.sceneId === "string" ? body.sceneId : undefined;
+    const chapter = typeof body.chapter === "string" ? body.chapter : undefined;
+    const selectedScenes = (project?.scenes ?? []).filter((scene) => {
+      if (sceneId) return scene.id === sceneId;
+      if (chapter) return scene.chapter === chapter || scene.title === chapter;
+      return true;
+    });
+    const scenesList = selectedScenes.map((scene) => sceneForPayload(scene)) as RenderPayload["scenesList"];
+    const durationSeconds = Math.max(1, scenesList?.reduce((sum, scene) => sum + scene.duration, 0) ?? (videoType === "COURSE" ? 18 : 20));
     return {
       projectId: project?.id ?? `${videoType.toLowerCase()}-preview`,
       videoType,
       template: videoType === "COURSE" ? "professional-course" : "quick-tutorial",
       format: videoType === "COURSE" ? "16:9" : "9:16",
       fps: 30,
-      durationSeconds: videoType === "COURSE" ? 18 : 20,
+      durationSeconds,
       subtitleMode: "AUTO_FROM_NARRATION",
       narrationStyle: videoType === "COURSE" ? "TRAINING" : "QUICK_TUTORIAL",
       brand: {
@@ -256,7 +254,23 @@ export class RenderService {
     const assets: Partial<Record<AssetType, string>> = {};
     for (const asset of job.project.assets) {
       assets[asset.type as AssetType] = asset.path;
+      (assets as Record<string, string>)[asset.id] = asset.path;
     }
+
+    const baseScenes = job.project.scenes.map((scene) => sceneForPayload(scene));
+    const sceneNarration = await this.prepareSceneNarration(job, baseScenes);
+    const scenesList = baseScenes.map((scene) => {
+      const prepared = sceneNarration.get(scene.id);
+      const narrationDuration = prepared?.durationSeconds ?? scene.narrationDurationSeconds;
+      const duration = scene.durationMode === "AUTO" && narrationDuration ? Math.max(scene.duration, narrationDuration + 0.6) : scene.duration;
+      return {
+        ...scene,
+        duration,
+        narrationAudioPath: prepared?.path ?? scene.narrationAudioPath,
+        narrationDurationSeconds: narrationDuration
+      };
+    });
+    const timelineDuration = Math.max(1, scenesList.reduce((sum, scene) => sum + scene.duration, 0));
 
     const preparedAudio = await this.audio.prepare({
       jobId,
@@ -274,7 +288,7 @@ export class RenderService {
       musicPath: job.project.musicPath,
       customMusicPath: job.project.customMusicPath,
       musicVolume: job.project.musicVolume,
-      durationSeconds: 30,
+      durationSeconds: timelineDuration,
       pronunciationDictionary: job.project.brandProfile?.pronunciationDictionary ? safePronunciations(job.project.brandProfile.pronunciationDictionary) : undefined
     });
 
@@ -293,7 +307,7 @@ export class RenderService {
       template: (job.project.template === "fullpos-premium-vertical" ? "saas-premium-ad" : job.project.template) as RenderPayload["template"],
       format: job.project.format as RenderPayload["format"],
       fps: 30,
-      durationSeconds: job.project.durationSeconds ?? 30,
+      durationSeconds: job.project.durationSeconds ?? timelineDuration,
       subtitleMode: job.project.subtitleMode as RenderPayload["subtitleMode"],
       narrationStyle: job.project.narrationStyle as RenderPayload["narrationStyle"],
       brand: {
@@ -306,19 +320,7 @@ export class RenderService {
       },
       brandProfile: job.project.brandProfile ? brandProfileForPayload(job.project.brandProfile) : undefined,
       assets,
-      scenesList: job.project.scenes.map((scene) => ({
-        id: scene.id,
-        projectId: scene.projectId,
-        type: scene.type as NonNullable<RenderPayload["scenesList"]>[number]["type"],
-        order: scene.order,
-        chapter: scene.chapter ?? undefined,
-        title: scene.title,
-        duration: scene.duration,
-        narrationScript: scene.narrationScript ?? undefined,
-        assetRefs: scene.assetRefs ? safeJsonArray(scene.assetRefs) : undefined,
-        transition: scene.transition ?? undefined,
-        animation: scene.animation ? safeJsonObject(scene.animation) as NonNullable<NonNullable<RenderPayload["scenesList"]>[number]["animation"]> : undefined
-      })),
+      scenesList,
       audio: {
         voiceoverEnabled: job.project.voiceoverEnabled,
         musicEnabled: job.project.musicEnabled,
@@ -347,7 +349,7 @@ export class RenderService {
       }
     };
 
-    const renderer = payload.template === "quick-tutorial"
+    const renderer = payload.template === "quick-tutorial" || payload.template === "visual-support" || payload.template === "customer-onboarding"
       ? renderQuickTutorialPreview
       : payload.template === "professional-course"
         ? renderProfessionalCoursePreview
@@ -375,6 +377,112 @@ export class RenderService {
       }
     });
   }
+
+  private async prepareSceneNarration(job: {
+    projectId: string;
+    project: {
+      scenes: Array<{ id: string; narrationScript: string | null; voiceProfile: string | null; narrationStyle: string | null; narrationHash: string | null; narrationAudioPath: string | null; duration: number; durationMode: string }>;
+      brandProfile: { pronunciationDictionary: string | null } | null;
+      voiceId: string | null;
+      voiceName: string;
+      voiceProfile: string;
+      voiceReferencePath: string | null;
+      voiceSpeed: number;
+      narrationStyle: string;
+    };
+  }, scenes: NonNullable<RenderPayload["scenesList"]>) {
+    const results = new Map<string, { path: string; durationSeconds?: number }>();
+    const dictionary = job.project.brandProfile?.pronunciationDictionary ? safePronunciations(job.project.brandProfile.pronunciationDictionary) : undefined;
+    for (const scene of job.project.scenes) {
+      if (!scene.narrationScript?.trim()) continue;
+      const prepared = await this.audio.createSceneNarration({
+        projectId: job.projectId,
+        sceneId: scene.id,
+        script: scene.narrationScript,
+        voice: job.project.voiceId ?? job.project.voiceName,
+        voiceProfile: scene.voiceProfile ?? job.project.voiceProfile,
+        narrationStyle: scene.narrationStyle ?? job.project.narrationStyle,
+        voiceReferencePath: job.project.voiceReferencePath,
+        speed: job.project.voiceSpeed,
+        pronunciationDictionary: dictionary,
+        existingHash: scene.narrationHash,
+        existingPath: scene.narrationAudioPath
+      });
+      await this.prisma.videoScene.update({
+        where: { id: scene.id },
+        data: {
+          narrationHash: prepared.hash,
+          narrationAudioPath: prepared.path,
+          narrationDurationSeconds: prepared.durationSeconds,
+          narrationUpdatedAt: new Date(),
+          duration: scene.durationMode === "AUTO" && prepared.durationSeconds ? Math.max(scene.duration, prepared.durationSeconds + 0.6) : undefined
+        }
+      });
+      results.set(scene.id, { path: prepared.path, durationSeconds: prepared.durationSeconds });
+    }
+    return results;
+  }
+}
+
+function sceneForPayload(scene: {
+  id: string;
+  projectId: string;
+  type: string;
+  order: number;
+  chapter: string | null;
+  chapterTitleEnabled: boolean;
+  title: string;
+  duration: number;
+  durationMode: string;
+  narrationScript: string | null;
+  voiceProfile: string | null;
+  narrationStyle: string | null;
+  narrationAudioPath: string | null;
+  narrationDurationSeconds: number | null;
+  assetRefs: string | null;
+  mediaAssetId: string | null;
+  trimStartSeconds: number | null;
+  trimEndSeconds: number | null;
+  sourceAudioEnabled: boolean;
+  scale: number;
+  positionX: number;
+  positionY: number;
+  cropTop: number;
+  cropRight: number;
+  cropBottom: number;
+  cropLeft: number;
+  customSubtitles: string | null;
+  transition: string | null;
+  animation: string | null;
+}): NonNullable<RenderPayload["scenesList"]>[number] {
+  return {
+    id: scene.id,
+    projectId: scene.projectId,
+    type: scene.type as NonNullable<RenderPayload["scenesList"]>[number]["type"],
+    order: scene.order,
+    chapter: scene.chapter ?? undefined,
+    chapterTitleEnabled: scene.chapterTitleEnabled,
+    title: scene.title,
+    duration: scene.duration,
+    durationMode: scene.durationMode === "MANUAL" ? "MANUAL" : "AUTO",
+    narrationScript: scene.narrationScript ?? undefined,
+    voiceProfile: scene.voiceProfile ?? undefined,
+    narrationStyle: scene.narrationStyle as NonNullable<RenderPayload["scenesList"]>[number]["narrationStyle"],
+    narrationAudioPath: scene.narrationAudioPath ?? undefined,
+    narrationDurationSeconds: scene.narrationDurationSeconds ?? undefined,
+    assetRefs: scene.assetRefs ? safeJsonArray(scene.assetRefs) : undefined,
+    mediaAssetId: scene.mediaAssetId ?? undefined,
+    trimStartSeconds: scene.trimStartSeconds ?? undefined,
+    trimEndSeconds: scene.trimEndSeconds ?? undefined,
+    sourceAudioEnabled: scene.sourceAudioEnabled,
+    scale: scene.scale,
+    positionX: scene.positionX,
+    positionY: scene.positionY,
+    crop: { top: scene.cropTop, right: scene.cropRight, bottom: scene.cropBottom, left: scene.cropLeft },
+    customSubtitles: scene.customSubtitles ? safeJsonObject(scene.customSubtitles) as NonNullable<RenderPayload["scenesList"]>[number]["customSubtitles"] : undefined,
+    transition: scene.transition ?? undefined,
+    animation: scene.animation ? safeJsonObject(scene.animation) as NonNullable<NonNullable<RenderPayload["scenesList"]>[number]["animation"]> : undefined
+  };
 }
 
 function safeJsonArray(value: string) {

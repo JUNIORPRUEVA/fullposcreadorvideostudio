@@ -1,10 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { audioRoot, assertInside, projectRoot } from "../lib/paths.js";
 import { VoiceGenerationService } from "./voice-generation.service.js";
 import { findVoiceProfile } from "./voice-profiles.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface AudioRequest {
   jobId: string;
@@ -30,6 +35,27 @@ export interface PreparedAudio {
   voiceoverPath?: string;
   musicPath?: string;
   note?: string;
+}
+
+export interface SceneNarrationRequest {
+  projectId: string;
+  sceneId: string;
+  script: string;
+  voice?: string | null;
+  voiceProfile?: string | null;
+  narrationStyle?: string | null;
+  voiceReferencePath?: string | null;
+  speed: number;
+  pronunciationDictionary?: Array<{ writtenText: string; spokenText: string }>;
+  existingHash?: string | null;
+  existingPath?: string | null;
+}
+
+export interface SceneNarrationResult {
+  path: string;
+  hash: string;
+  durationSeconds?: number;
+  reused: boolean;
 }
 
 @Injectable()
@@ -87,6 +113,26 @@ export class AudioService {
       outputPath
     });
     return { id, outputPath, url: `/audio/previews/${id}/file` };
+  }
+
+  async createSceneNarration(request: SceneNarrationRequest): Promise<SceneNarrationResult> {
+    const hash = sceneNarrationHash(request);
+    if (request.existingHash === hash && request.existingPath && existsSync(request.existingPath)) {
+      return { path: request.existingPath, hash, durationSeconds: await probeAudioDuration(request.existingPath), reused: true };
+    }
+    const outputPath = path.join(audioRoot, "voice", request.projectId, "scenes", `${request.sceneId}-${hash.slice(0, 10)}.wav`);
+    const speed = speedForStyle(request.narrationStyle, request.speed);
+    await this.voiceGeneration.generateVoice({
+      text: request.script.trim(),
+      language: "es",
+      voice: request.voice ?? "",
+      voiceProfile: request.voiceProfile,
+      voiceReferencePath: request.voiceReferencePath ?? undefined,
+      speed,
+      pronunciationDictionary: request.pronunciationDictionary,
+      outputPath
+    });
+    return { path: outputPath, hash, durationSeconds: await probeAudioDuration(outputPath), reused: false };
   }
 
   async createMixPreview(request: {
@@ -173,6 +219,37 @@ export class AudioService {
       assertInside(path.join(audioRoot, "music"), source);
       if (existsSync(source)) return source;
     }
+    return undefined;
+  }
+}
+
+function sceneNarrationHash(request: SceneNarrationRequest) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      script: request.script.trim(),
+      voice: request.voice ?? "",
+      voiceProfile: request.voiceProfile ?? "",
+      narrationStyle: request.narrationStyle ?? "",
+      speed: speedForStyle(request.narrationStyle, request.speed),
+      dictionary: request.pronunciationDictionary ?? []
+    }))
+    .digest("hex");
+}
+
+function speedForStyle(style: string | null | undefined, base: number) {
+  if (style === "QUICK_TUTORIAL") return Math.min(1.15, base + 0.05);
+  if (style === "TRAINING") return Math.max(0.9, base - 0.04);
+  if (style === "MOTIVATIONAL") return Math.max(0.9, base - 0.02);
+  if (style === "PROMOTIONAL") return Math.min(1.15, base + 0.03);
+  return base;
+}
+
+async function probeAudioDuration(filePath: string) {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", filePath], { timeout: 30_000 });
+    const duration = Number(stdout.trim());
+    return Number.isFinite(duration) ? duration : undefined;
+  } catch {
     return undefined;
   }
 }

@@ -755,6 +755,71 @@ button {
   white-space: nowrap;
 }
 
+.trainingEditor {
+  display: grid;
+  grid-template-columns: minmax(220px, .85fr) minmax(280px, 1.1fr) minmax(320px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.storyCard.selected {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue), 0 12px 28px rgba(20, 87, 217, .08);
+}
+
+.trainingPreview {
+  min-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f5f9ff;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.trainingPreview video {
+  width: 100%;
+  max-height: 520px;
+  background: #031025;
+}
+
+.sceneProperties {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tabs span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--muted);
+  background: #f8fbff;
+}
+
+.formGrid.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chapterList {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -794,6 +859,11 @@ button {
   .audioGrid,
   .reviewGrid,
   .assetStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .trainingEditor,
+  .formGrid.compact {
     grid-template-columns: 1fr;
   }
 
