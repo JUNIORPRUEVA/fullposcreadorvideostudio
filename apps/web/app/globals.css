@@ -1156,6 +1156,45 @@ button {
   background: rgba(13, 23, 39, .72);
 }
 
+.editorEmptyState {
+  min-height: 560px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 22px;
+  padding: 42px;
+  text-align: center;
+  border: 1px dashed rgba(125, 157, 205, .32);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at top, rgba(37, 99, 235, .20), transparent 38%),
+    rgba(8, 15, 28, .72);
+}
+
+.editorEmptyState svg {
+  color: #9fc4ff;
+}
+
+.editorEmptyState h2 {
+  margin: 0;
+  color: #f5f8ff;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.editorEmptyState p {
+  max-width: 620px;
+  margin: 10px auto 0;
+  color: #b9c8dd;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.editorEmptyState small {
+  color: #8fa3c2;
+  font-weight: 800;
+}
+
 .editorDark .secondary {
   color: #e7f0ff;
   background: #14233a;

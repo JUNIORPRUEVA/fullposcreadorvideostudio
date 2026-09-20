@@ -74,6 +74,11 @@ export class BrandsController {
   @Get(":id/assets/:assetId/file")
   async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
     const asset = await this.brands.findAsset(id, assetId);
+    const signedUrl = await this.brands.signedAssetUrl(asset);
+    if (signedUrl) {
+      response.setHeader("Cache-Control", "no-store");
+      return response.redirect(302, signedUrl);
+    }
     if (!asset || !existsSync(asset.path)) throw new NotFoundException("Brand asset file not found.");
     response.setHeader("Content-Type", asset.mimeType);
     response.setHeader("Cache-Control", "no-store");

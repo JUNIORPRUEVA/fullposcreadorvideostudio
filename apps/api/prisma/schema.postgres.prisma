@@ -74,6 +74,9 @@ model BrandAsset {
   filename  String
   path      String
   mimeType  String
+  storageProvider String @default("local")
+  objectKey String?
+  metadata  String?
   createdAt DateTime @default(now())
   brandProfile BrandProfile @relation(fields: [brandProfileId], references: [id], onDelete: Cascade)
 }

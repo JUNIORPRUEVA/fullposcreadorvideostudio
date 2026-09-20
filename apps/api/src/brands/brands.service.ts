@@ -1,9 +1,14 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { assertInside, uploadsRoot } from "../lib/paths.js";
+import { createR2Client, R2_SIGNED_URL_TTL_SECONDS } from "../ai-video/r2-signed-url-ai-asset-transport.js";
+import { readR2Config } from "../ai-video/r2-env.js";
 import { safeBrandExport, slugify } from "./brand-utils.js";
 
 const includeBrand = { assets: true, projects: { select: { id: true, name: true, videoType: true } } };
@@ -177,12 +182,45 @@ export class BrandsService {
     const brandDir = path.join(uploadsRoot, "brands", brandId);
     const finalPath = path.join(brandDir, filename);
     assertInside(uploadsRoot, finalPath);
+    const r2 = readR2Config();
+    const objectKey = r2 ? `brand-assets/${brandId}/${filename}` : undefined;
+    if (r2 && objectKey) {
+      await createR2Client(r2).send(new PutObjectCommand({
+        Bucket: r2.bucketName,
+        Key: objectKey,
+        Body: createReadStream(file.path),
+        ContentType: file.mimetype,
+        ContentLength: file.size
+      }));
+    }
     await mkdir(brandDir, { recursive: true });
     await rename(file.path, finalPath);
-    const asset = await this.prisma.brandAsset.create({ data: { brandProfileId: brandId, type, filename, path: finalPath, mimeType: file.mimetype } });
+    const asset = await this.prisma.brandAsset.create({
+      data: {
+        brandProfileId: brandId,
+        type,
+        filename,
+        path: finalPath,
+        mimeType: file.mimetype,
+        storageProvider: r2 && objectKey ? "r2" : "local",
+        objectKey,
+        metadata: objectKey ? JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), size: file.size }) : undefined
+      }
+    });
     const update = assetFieldUpdate(type, asset.id);
     if (Object.keys(update).length) await this.prisma.brandProfile.update({ where: { id: brandId }, data: update });
     return asset;
+  }
+
+  async signedAssetUrl(asset: { objectKey: string | null; storageProvider?: string | null }) {
+    if (asset.storageProvider !== "r2" || !asset.objectKey) return undefined;
+    const config = readR2Config();
+    if (!config) return undefined;
+    return getSignedUrl(
+      createR2Client(config),
+      new GetObjectCommand({ Bucket: config.bucketName, Key: asset.objectKey }),
+      { expiresIn: R2_SIGNED_URL_TTL_SECONDS }
+    );
   }
 
   async exportBrand(id: string) {

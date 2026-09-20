@@ -756,7 +756,63 @@ export default function Home() {
         body: JSON.stringify({ ids: nextOrder })
       });
       await refreshAll();
-      show("success", `${validFiles.length} archivo${validFiles.length === 1 ? "" : "s"} agregado${validFiles.length === 1 ? "" : "s"}.`);
+      show("success", `${validFiles.length} archivo${validFiles.length === 1 ? "" : "s"} agregado${validFiles.length === 1 ? "" : "s"} · ${createdIds.length} paso${createdIds.length === 1 ? "" : "s"} creado${createdIds.length === 1 ? "" : "s"}`);
+      return createdIds;
+    } catch (error) {
+      show("error", getErrorMessage(error));
+      return [];
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createStepsFromLibrary(insertAfterSceneId?: string) {
+    try {
+      setBusy("scene-library-batch");
+      const id = await ensureProject();
+      const currentProject = await fetchJson<Project>(`${API_URL}/projects/${id}`);
+      const mediaAssets = (currentProject.assets ?? []).filter((asset) => {
+        const mime = asset.mimeType ?? "";
+        return mime.startsWith("image/") || mime.startsWith("video/");
+      });
+      if (!mediaAssets.length) {
+        show("info", "No hay medios en la biblioteca todavía. Sube imágenes o grabaciones primero.");
+        return [];
+      }
+      const orderedScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const insertIndex = insertAfterSceneId ? orderedScenes.findIndex((scene) => scene.id === insertAfterSceneId) + 1 : orderedScenes.length;
+      const chapter = insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
+      const createdIds: string[] = [];
+      for (const [index, asset] of mediaAssets.entries()) {
+        const isVideo = Boolean(asset.mimeType?.startsWith("video/"));
+        const scene = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: isVideo ? "SCREEN_RECORDING" : "IMAGE",
+            order: orderedScenes.length + index + 1,
+            chapter,
+            title: cleanFileTitle(asset.filename) || `Paso ${orderedScenes.length + index + 1}`,
+            duration: isVideo ? Math.min(Math.max(Math.round(asset.durationSeconds ?? 6), 3), 18) : 5,
+            durationMode: "AUTO",
+            mediaAssetId: asset.id,
+            narrationScript: ""
+          })
+        });
+        createdIds.push(scene.id);
+      }
+      const nextOrder = [
+        ...orderedScenes.slice(0, insertIndex).map((scene) => scene.id),
+        ...createdIds,
+        ...orderedScenes.slice(insertIndex).map((scene) => scene.id)
+      ];
+      await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: nextOrder })
+      });
+      await refreshAll();
+      show("success", `${mediaAssets.length} medio${mediaAssets.length === 1 ? "" : "s"} elegido${mediaAssets.length === 1 ? "" : "s"} · ${createdIds.length} paso${createdIds.length === 1 ? "" : "s"} creado${createdIds.length === 1 ? "" : "s"}`);
       return createdIds;
     } catch (error) {
       show("error", getErrorMessage(error));
@@ -1546,7 +1602,7 @@ export default function Home() {
                 />
               )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
               {step === 4 && (
                 <>
                   <FormatStep draft={draft} setDraft={setDraft} busy={busy} stylePreviewUrl={stylePreviewUrl} onPreviewStyle={previewStyle} />
@@ -1778,9 +1834,14 @@ function VideoTypeStep({
 
 function LogoMark({ brand }: { brand: BrandProfile }) {
   const url = logoUrl(brand);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+  const showImage = Boolean(url) && !failed;
   return (
-    <span className="brandLogoMark" style={{ background: url ? undefined : `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})` }}>
-      {url ? <img src={url} alt="" /> : initials(brand.name)}
+    <span className="brandLogoMark" style={{ background: showImage ? undefined : `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})` }}>
+      {showImage ? <img src={url} alt="" onError={() => setFailed(true)} /> : initials(brand.name)}
     </span>
   );
 }
@@ -1887,7 +1948,8 @@ function StoryboardStep({
   onPreviewScene,
   onPreviewChapter,
   onPreviewFull,
-  onUploadSceneMedia
+  onUploadSceneMedia,
+  onCreateStepsFromLibrary
 }: {
   project?: Project;
   busy: string | null;
@@ -1901,6 +1963,7 @@ function StoryboardStep({
   onPreviewChapter: (chapter: string) => void;
   onPreviewFull: () => void;
   onUploadSceneMedia: (insertAfterSceneId: string | undefined, files?: FileList | File[]) => Promise<string[]>;
+  onCreateStepsFromLibrary: (insertAfterSceneId?: string) => Promise<string[]>;
 }) {
   const scenes = [...(project?.scenes ?? [])].sort((a, b) => a.order - b.order);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -1914,12 +1977,18 @@ function StoryboardStep({
   const isVideoMedia = Boolean(selectedAsset?.mimeType?.startsWith("video/"));
   const selectedDuration = Math.max(0, (selected?.trimEndSeconds ?? selected?.duration ?? 0) - (selected?.trimStartSeconds ?? 0));
   const narrationSeconds = estimateSpeechSeconds(selected?.narrationScript ?? "");
+  const isCourse = project?.videoType === "COURSE";
+  const hasScenes = scenes.length > 0;
   function patchSelected(patch: Partial<StoryScene>) {
     if (selected) onUpdateScene(selected.id, patch);
   }
 
   async function addMediaFiles(files?: FileList | File[]) {
     const createdIds = await onUploadSceneMedia(selected?.id, files);
+    if (createdIds[0]) setSelectedId(createdIds[0]);
+  }
+  async function chooseFromLibrary() {
+    const createdIds = await onCreateStepsFromLibrary(selected?.id);
     if (createdIds[0]) setSelectedId(createdIds[0]);
   }
   function addFocus(x = 0.5, y = 0.5, intensity: "soft" | "normal" | "close" = "normal") {
@@ -1972,19 +2041,40 @@ function StoryboardStep({
   const grouped = chapters.length
     ? chapters.map((chapter) => ({ chapter, scenes: scenes.filter((scene) => scene.chapter === chapter) }))
     : [{ chapter: "", scenes }];
+  const emptyEditor = !hasScenes;
   return (
     <div className="sectionBlock editorDark">
       <div className="sectionHeader">
         <div>
-          <strong>Editar video</strong>
-          <p className="muted">Selecciona un paso, mira la vista previa y agrega indicaciones visuales sin usar términos técnicos.</p>
+          <strong>Construye tu video paso a paso.</strong>
+          <p className="muted">Agrega capturas o grabaciones y luego destaca, explica y organiza cada paso.</p>
         </div>
-        <button className="primary" type="button" disabled={!project || busy === "chapter-preview"} onClick={onPreviewFull}><Play size={16} />Vista previa completa</button>
+        <button className="primary" type="button" disabled={!project || !hasScenes || busy === "chapter-preview"} onClick={onPreviewFull}><Play size={16} />Vista previa completa</button>
       </div>
+      {emptyEditor ? (
+        <div
+          className="editorEmptyState"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            void addMediaFiles(event.dataTransfer.files);
+          }}
+        >
+          <ImageIcon size={40} />
+          <div>
+            <h2>Agrega el contenido que quieres enseñar</h2>
+            <p>Selecciona imágenes o grabaciones. Puedes elegir varios archivos a la vez y crearemos un paso por cada archivo.</p>
+          </div>
+          <div className="buttonRow">
+            <label className="primary fileButton"><Upload size={16} />Subir archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label>
+            <button className="secondary" type="button" disabled={!project?.assets?.length || busy === "scene-library-batch"} onClick={() => void chooseFromLibrary()}>Elegir de biblioteca</button>
+          </div>
+          <small>También puedes arrastrar archivos aquí.</small>
+        </div>
+      ) : (
       <div className="trainingEditor">
         <div className="storyboard">
           <div className="panelTitle"><strong>Pasos del video</strong><small>{scenes.length ? `${scenes.length} pasos` : "Sin pasos"}</small></div>
-          {scenes.length === 0 ? <div className="emptyState"><p>Empieza agregando una grabación o captura de la pantalla que quieres enseñar.</p><button className="primary" type="button" onClick={onAddScene}><Plus size={16} />Agregar paso</button></div> : null}
           {grouped.map((group) => (
             <div className="chapterGroup" key={group.chapter || "all"}>
               {group.chapter ? (
@@ -2015,11 +2105,11 @@ function StoryboardStep({
             </div>
           ))}
           <button className="secondary fullWidth" type="button" disabled={busy === "scene-add"} onClick={onAddScene}><Plus size={16} />Agregar paso</button>
-          <div className="chapterList">
+          {isCourse ? <div className="chapterList">
             <strong>Capítulos</strong>
             {chapters.map((chapter) => <button key={chapter} className="secondary" type="button" onClick={() => onPreviewChapter(chapter)}><Play size={14} />Ver {chapter}</button>)}
             <button className="secondary" type="button" disabled={!selected} onClick={() => selected && patchSelected({ chapter: selected.chapter ? `${selected.chapter} 2` : "Nuevo capítulo", chapterTitleEnabled: true })}><Plus size={14} />Agregar capítulo</button>
-          </div>
+          </div> : null}
         </div>
         <div className="previewColumn">
           <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : selectedAsset?.filename ?? "Selecciona o sube un medio"}</small></div>
@@ -2047,7 +2137,7 @@ function StoryboardStep({
             <div className="panelTitle"><strong>Editar paso</strong><small>{busy === `scene-update-${selected.id}` || busy === `scene-media-${selected.id}` ? "Guardando..." : "Guardado ✓"}</small></div>
             <EditorSection id="content" label="Contenido" open={openSection} setOpen={setOpenSection}>
               <Field label="Título del paso" value={selected.title} onChange={(title) => patchSelected({ title })} />
-              <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} />
+              {isCourse ? <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} /> : null}
               <label className="field"><span>Medio</span><select value={selected.mediaAssetId ?? ""} onChange={(event) => patchSelected({ mediaAssetId: event.target.value || undefined, type: assetSceneType(project?.assets.find((asset) => asset.id === event.target.value)) })}><option value="">Sin medio</option>{(project?.assets ?? []).map((asset) => <option key={asset.id} value={asset.id}>{asset.filename}</option>)}</select></label>
               <label className="field fileButton secondary"><Upload size={16} />Agregar archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label>
               <small className="muted">Puedes elegir muchos archivos; se creará un paso por cada uno.</small>
@@ -2078,7 +2168,7 @@ function StoryboardStep({
             <EditorSection id="advanced" label="Opciones avanzadas" open={openSection} setOpen={setOpenSection}>
               <label className="field"><span>Tipo interno</span><select value={selected.type} onChange={(event) => patchSelected({ type: event.target.value })}>{["TITLE", "CHAPTER", "SCREENSHOT", "SCREEN_RECORDING", "CALLOUT", "TEXT", "SUMMARY", "BRAND_INTRO", "BRAND_OUTRO", "CTA", "VIDEO", "IMAGE"].map((type) => <option key={type} value={type}>{friendlySceneType(type)}</option>)}</select></label>
               <label className="field"><span>Modo duración</span><select value={selected.durationMode ?? "AUTO"} onChange={(event) => patchSelected({ durationMode: event.target.value as StoryScene["durationMode"] })}><option value="AUTO">Automática</option><option value="MANUAL">Manual</option></select></label>
-              <Toggle label="Título de capítulo" checked={Boolean(selected.chapterTitleEnabled)} onChange={(chapterTitleEnabled) => patchSelected({ chapterTitleEnabled })} />
+              {isCourse ? <Toggle label="Título de capítulo" checked={Boolean(selected.chapterTitleEnabled)} onChange={(chapterTitleEnabled) => patchSelected({ chapterTitleEnabled })} /> : null}
               <Toggle label="Usar audio original" checked={Boolean(selected.sourceAudioEnabled)} onChange={(sourceAudioEnabled) => patchSelected({ sourceAudioEnabled })} />
               <div className="formGrid compact"><label className="field"><span>Zoom exacto</span><input type="number" min="0.5" max="4" step="0.05" value={selected.scale ?? 1} onChange={(event) => patchSelected({ scale: Number(event.target.value) })} /></label><label className="field"><span>X exacta</span><input type="number" min="0" max="1" step="0.01" value={selected.positionX ?? 0.5} onChange={(event) => patchSelected({ positionX: Number(event.target.value) })} /></label><label className="field"><span>Y exacta</span><input type="number" min="0" max="1" step="0.01" value={selected.positionY ?? 0.5} onChange={(event) => patchSelected({ positionY: Number(event.target.value) })} /></label></div>
               <button className="secondary" type="button" onClick={() => patchSelected({ scale: 1, positionX: 0.5, positionY: 0.5, cropTop: 0, cropRight: 0, cropBottom: 0, cropLeft: 0 })}>Restablecer encuadre</button>
@@ -2086,6 +2176,7 @@ function StoryboardStep({
           </div>
         ) : null}
       </div>
+      )}
     </div>
   );
 }
