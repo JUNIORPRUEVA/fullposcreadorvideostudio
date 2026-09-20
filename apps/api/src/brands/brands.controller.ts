@@ -73,7 +73,17 @@ export class BrandsController {
 
   @Get(":id/assets/:assetId/file")
   async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
+    return this.sendBrandImageOrFile(id, assetId, response, false);
+  }
+
+  @Get(":id/assets/:assetId/public-image")
+  async publicImage(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
+    return this.sendBrandImageOrFile(id, assetId, response, true);
+  }
+
+  private async sendBrandImageOrFile(id: string, assetId: string, response: Response, imageOnly: boolean) {
     const asset = await this.brands.findAsset(id, assetId);
+    if (imageOnly && !["image/png", "image/jpeg", "image/webp"].includes(asset.mimeType)) throw new NotFoundException("Brand image not found.");
     const signedUrl = await this.brands.signedAssetUrl(asset);
     if (signedUrl) {
       response.setHeader("Cache-Control", "no-store");

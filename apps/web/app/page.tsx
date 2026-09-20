@@ -2879,7 +2879,7 @@ function brandPayload(form: BrandForm) {
 
 function logoUrl(brand: BrandProfile) {
   const id = brand.logoPrimaryAssetId ?? brand.logoLightAssetId ?? brand.logoDarkAssetId ?? brand.watermarkAssetId;
-  return id ? `${API_URL}/brands/${brand.id}/assets/${id}/file` : "";
+  return id ? `${API_URL}/brands/${brand.id}/assets/${id}/public-image` : "";
 }
 
 function initials(value: string) {

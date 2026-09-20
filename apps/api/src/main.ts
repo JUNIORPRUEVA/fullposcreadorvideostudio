@@ -25,6 +25,7 @@ app.use((request: Request, response: Response, next: NextFunction) => {
   if (!authRequired()) return next();
   const path = request.path ?? request.url ?? "";
   if (path === "/health" || path.startsWith("/auth/")) return next();
+  if (request.method === "GET" && /^\/brands\/[^/]+\/assets\/[^/]+\/public-image$/.test(path)) return next();
   const authorization = request.headers.authorization;
   const token = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
   if (token && verifyAuthToken(token, authSecret())) return next();
