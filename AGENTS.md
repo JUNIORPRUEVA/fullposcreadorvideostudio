@@ -11,6 +11,8 @@
 - Avoid unnecessary dependencies and abandoned packages.
 - Run build/typecheck/tests after meaningful changes.
 - Do not version `node_modules`, uploads, renders, temp files, secrets, or generated videos.
+- For cloud deployment, PostgreSQL is the production source of truth and private R2 is canonical persistent file storage. Local filesystem paths are temporary/cache only.
+- Never deploy a public PWA without authentication enabled.
 - The product display name is now FullPOS Video Studio. The repo/folder name remains FullPOS-Ad-Studio until explicitly renamed.
 - Treat the engine as a general video studio: advertisements, tutorials, courses, onboarding, support, feature spotlights, brand/motivational, and free-form videos.
 - For tutorial/course/support content, never use generative AI as the authoritative renderer of software UI. Preserve source pixels and use deterministic Remotion zoom, pan, crop, highlight, subtitles, callouts, cursor/click indicators, and overlays.

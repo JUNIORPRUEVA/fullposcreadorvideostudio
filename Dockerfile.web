@@ -1,0 +1,27 @@
+FROM node:24-bookworm-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci
+
+FROM deps AS build
+ARG NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+COPY tsconfig.base.json ./
+COPY apps/web apps/web
+COPY packages/shared packages/shared
+RUN npm run build --workspace @fullpos-ad-studio/shared \
+  && npm run build --workspace @fullpos-ad-studio/web \
+  && npm prune --omit=dev
+
+FROM node:24-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/node_modules node_modules
+COPY --from=build /app/apps/web apps/web
+COPY --from=build /app/packages/shared packages/shared
+WORKDIR /app/apps/web
+EXPOSE 3000
+CMD ["npm", "run", "start"]

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="FullPOS Video Studio">
+  <rect width="192" height="192" rx="34" fill="#050913"/>
+  <rect x="26" y="26" width="140" height="140" rx="28" fill="url(#g)"/>
+  <path d="M62 62h68v18H82v20h40v18H82v36H62V62Z" fill="#fff"/>
+  <path d="M119 101l31 18-31 18v-36Z" fill="#dff3ff"/>
+  <defs>
+    <linearGradient id="g" x1="26" y1="26" x2="166" y2="166" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1457d9"/>
+      <stop offset="1" stop-color="#11a8c9"/>
+    </linearGradient>
+  </defs>
+</svg>

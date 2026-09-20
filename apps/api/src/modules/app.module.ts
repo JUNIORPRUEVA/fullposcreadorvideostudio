@@ -19,9 +19,12 @@ import { CompositeAiAssetTransport } from "../ai-video/composite-ai-asset-transp
 import { VideoStudioController } from "../video-studio/video-studio.controller.js";
 import { BrandsController } from "../brands/brands.controller.js";
 import { BrandsService } from "../brands/brands.service.js";
+import { HealthController } from "../health/health.controller.js";
+import { AuthController } from "../auth/auth.controller.js";
+import { AuthService } from "../auth/auth.service.js";
 
 @Module({
-  controllers: [ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController],
-  providers: [PrismaService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService]
+  controllers: [HealthController, AuthController, ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController],
+  providers: [PrismaService, AuthService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService]
 })
 export class AppModule {}

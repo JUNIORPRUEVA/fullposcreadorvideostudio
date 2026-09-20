@@ -7,7 +7,7 @@ The repository/folder name has not been renamed yet. Existing advertisement flow
 ## Stack
 
 - Next.js, React, TypeScript, App Router
-- NestJS, Prisma, SQLite
+- NestJS, Prisma, SQLite for local legacy data; PostgreSQL is the cloud target
 - Remotion and FFmpeg for video rendering
 - General video types, storyboard scenes, screen recordings, voice, music, R2, RunPod, and hybrid AI backgrounds
 - npm workspaces
@@ -30,3 +30,7 @@ Local previews include:
 ## Safety
 
 This project is independent. Do not connect it to DaleVentas production, do not reuse credentials from other projects, and do not write generated media to Git.
+
+## Cloud Direction
+
+Production cloud deployment must use PostgreSQL for structured data and private Cloudflare R2 for persistent files. Local filesystem paths are valid only for development, temporary cache, and render workspaces. Public PWA access requires authentication.

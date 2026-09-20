@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  videoType   String      @default("ADVERTISEMENT")
+  productName String
+  headline    String
+  subheadline String?
+  offer       String
+  price       String
+  website     String
+  template    String
+  format      String
+  durationMode String     @default("30_SEC")
+  durationSeconds Int?
+  subtitleMode String     @default("OFF")
+  narrationStyle String   @default("PROMOTIONAL")
+  brandProfileId String?
+  voiceoverEnabled Boolean @default(false)
+  voiceoverScript  String?
+  voiceProfile     String  @default("dominican-promotional")
+  voiceName        String  @default("female-es")
+  voiceId          String?
+  voiceReferenceId String?
+  voiceReferencePath String?
+  voiceReferenceName String?
+  voiceSpeed       Float   @default(1)
+  voiceVolume      Float   @default(1)
+  musicEnabled     Boolean @default(true)
+  musicTrackId     String?
+  musicPath        String?
+  customMusicPath  String?
+  musicVolume      Float   @default(0.2)
+  visualStyle      String  @default("saas-premium")
+  motionIntensity  String  @default("cinematic")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  assets      Asset[]
+  scenes      VideoScene[]
+  renderJobs  RenderJob[]
+  aiVideoJobs AiVideoJob[]
+  brandProfile BrandProfile? @relation(fields: [brandProfileId], references: [id], onDelete: SetNull)
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  projectId String
+  type      String
+  filename  String
+  path      String
+  mimeType  String
+  durationSeconds Float?
+  width     Int?
+  height    Int?
+  codec     String?
+  trimStart Float?
+  trimEnd   Float?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model BrandAsset {
+  id        String   @id @default(cuid())
+  brandProfileId String
+  type      String
+  filename  String
+  path      String
+  mimeType  String
+  createdAt DateTime @default(now())
+  brandProfile BrandProfile @relation(fields: [brandProfileId], references: [id], onDelete: Cascade)
+}
+
+model VideoScene {
+  id        String   @id @default(cuid())
+  projectId String
+  type      String
+  order     Int
+  chapter   String?
+  chapterTitleEnabled Boolean @default(false)
+  title     String
+  duration  Float
+  durationMode String @default("AUTO")
+  narrationScript String?
+  voiceProfile String?
+  narrationStyle String?
+  narrationAudioPath String?
+  narrationHash String?
+  narrationDurationSeconds Float?
+  narrationUpdatedAt DateTime?
+  assetRefs String?
+  mediaAssetId String?
+  trimStartSeconds Float?
+  trimEndSeconds Float?
+  sourceAudioEnabled Boolean @default(false)
+  scale Float @default(1)
+  positionX Float @default(0.5)
+  positionY Float @default(0.5)
+  cropTop Float @default(0)
+  cropRight Float @default(0)
+  cropBottom Float @default(0)
+  cropLeft Float @default(0)
+  customSubtitles String?
+  transition String?
+  animation String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model BrandProfile {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  archived  Boolean  @default(false)
+  isDefault Boolean  @default(false)
+  logo      String?
+  logoPrimaryAssetId String?
+  logoLightAssetId String?
+  logoDarkAssetId String?
+  primaryColor String @default("#1457d9")
+  secondaryColor String @default("#11a8c9")
+  accentColor String @default("#11a8c9")
+  backgroundColor String @default("#f8fbff")
+  textColor String @default("#111d2f")
+  website   String?
+  whatsapp  String?
+  email     String?
+  defaultCTA String?
+  defaultOffer String?
+  defaultPriceText String?
+  defaultVoiceProfile String?
+  defaultNarrationStyle String?
+  defaultMusicTrackId String?
+  defaultMusicVolume Float @default(0.15)
+  defaultIntroTemplate String @default("simple-logo")
+  defaultOutroTemplate String @default("logo-cta")
+  watermarkEnabled Boolean @default(false)
+  watermarkAssetId String?
+  watermarkPosition String @default("bottom-right")
+  watermarkOpacity Float @default(0.35)
+  fontHeading String @default("Inter")
+  fontBody String @default("Inter")
+  musicPreferences String?
+  pronunciationDictionary String?
+  exportableConfigJson String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  projects  Project[]
+  assets    BrandAsset[]
+}
+
+model RenderJob {
+  id           String    @id @default(cuid())
+  projectId    String
+  status       String
+  progress     Int       @default(0)
+  outputPath   String?
+  voiceoverPath String?
+  musicPath     String?
+  audioNote     String?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  startedAt    DateTime?
+  completedAt  DateTime?
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AiVideoJob {
+  id            String    @id @default(cuid())
+  projectId     String
+  scene         String
+  provider      String
+  model         String
+  profile       String
+  status        String
+  prompt        String
+  imageUrl      String?
+  localImagePath String?
+  r2ObjectKey   String?
+  inputUrlExpiresAt DateTime?
+  videoUrl      String?
+  outputPath    String?
+  reportedCost  Float?
+  estimatedCost Float
+  duration      Int
+  resolution    String
+  seed          Int?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import type { AssetType, VideoType } from "@fullpos-ad-studio/shared";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 type Section = "Dashboard" | "Crear video" | "Proyectos" | "Videos" | "Marcas" | "Configuración";
 
 type RenderJob = {
@@ -325,6 +325,11 @@ type MusicTrack = {
   quality: "DEMO" | "PRODUCTION-READY";
 };
 
+type AuthStatus = {
+  ownerConfigured: boolean;
+  authRequired: boolean;
+};
+
 const defaultDraft: Draft = {
   name: "Nuevo video",
   videoType: "ADVERTISEMENT",
@@ -429,6 +434,9 @@ export default function Home() {
   const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState({ type: "info", text: "Listo para crear un video." });
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authToken, setAuthToken] = useState("");
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [brandModal, setBrandModal] = useState<{ mode: "create" | "edit"; brand?: BrandProfile } | null>(null);
   const [brandForm, setBrandForm] = useState<BrandForm>(emptyBrandForm());
   const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
@@ -436,6 +444,13 @@ export default function Home() {
   const [brandSearch, setBrandSearch] = useState("");
 
   useEffect(() => {
+    setAuthToken(window.localStorage.getItem("videoStudioToken") ?? "");
+    void loadAuthStatus();
+  }, []);
+
+  useEffect(() => {
+    if (!authStatus) return;
+    if (authStatus.authRequired && !authToken) return;
     void refreshAll();
     void loadBrands();
     void loadSettings();
@@ -444,7 +459,7 @@ export default function Home() {
     void loadMusicLibrary();
     void loadAiProfiles();
     void loadAiTransportStatus();
-  }, []);
+  }, [authStatus, authToken]);
 
   useEffect(() => {
     if (!renderJob || !["QUEUED", "RENDERING"].includes(renderJob.status)) return;
@@ -479,6 +494,41 @@ export default function Home() {
   const isRendering = latestJob?.status === "QUEUED" || latestJob?.status === "RENDERING";
   const downloadUrl = latestJob?.status === "COMPLETED" ? `${API_URL}/renders/${latestJob.id}/file` : "";
   const streamUrl = latestJob?.status === "COMPLETED" ? `${API_URL}/renders/${latestJob.id}/stream` : "";
+
+  async function loadAuthStatus() {
+    try {
+      setAuthStatus(await fetchJson<AuthStatus>(`${API_URL}/auth/status`, { skipAuth: true }));
+    } catch {
+      setAuthStatus({ ownerConfigured: false, authRequired: false });
+    }
+  }
+
+  async function login() {
+    try {
+      setBusy("login");
+      const result = await fetchJson<{ token: string }>(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loginForm),
+        skipAuth: true
+      });
+      window.localStorage.setItem("videoStudioToken", result.token);
+      setAuthToken(result.token);
+      show("success", "Sesión iniciada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function logout() {
+    window.localStorage.removeItem("videoStudioToken");
+    setAuthToken("");
+    setProjects([]);
+    setBrands([]);
+    setVideos([]);
+  }
 
   async function refreshAll() {
     await Promise.all([loadProjects(), loadVideos(), loadBrands()]);
@@ -1383,6 +1433,22 @@ export default function Home() {
     setMessage({ type, text });
   }
 
+  if (authStatus?.authRequired && !authToken) {
+    return (
+      <main className="loginShell">
+        <section className="loginCard">
+          <div className="brandMark">VS</div>
+          <h1>FullPOS Video Studio</h1>
+          <p className="muted">Inicia sesión para administrar marcas, proyectos y videos.</p>
+          {!authStatus.ownerConfigured ? <div className="notice error">El propietario inicial no está configurado. Define OWNER_EMAIL y OWNER_PASSWORD en el backend.</div> : null}
+          <label className="field"><span>Email</span><input value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} /></label>
+          <label className="field"><span>Contraseña</span><input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} /></label>
+          <button className="primary" type="button" disabled={busy === "login" || !authStatus.ownerConfigured} onClick={() => void login()}>Entrar</button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -1409,10 +1475,13 @@ export default function Home() {
             <h1>{section}</h1>
             <p>{sectionSubtitle(section)}</p>
           </div>
-          <button className="primary" type="button" onClick={resetDraft}>
-            <Plus size={18} />
-            Crear video
-          </button>
+          <div className="rowActions">
+            <button className="primary" type="button" onClick={resetDraft}>
+              <Plus size={18} />
+              Crear video
+            </button>
+            {authStatus?.authRequired ? <button className="secondary" type="button" onClick={logout}>Salir</button> : null}
+          </div>
         </section>
 
         <div className={`notice ${message.type}`}>{message.text}</div>
@@ -2731,8 +2800,16 @@ function isDemoBrand(brand: BrandProfile) {
   return value.includes("demo");
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+type StudioRequestInit = RequestInit & { skipAuth?: boolean };
+
+async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!init?.skipAuth && typeof window !== "undefined") {
+    const token = window.localStorage.getItem("videoStudioToken");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const { skipAuth, ...requestInit } = init ?? {};
+  const response = await fetch(url, { ...requestInit, headers });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 }
