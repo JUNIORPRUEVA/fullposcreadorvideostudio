@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/video/package.json packages/video/package.json
-RUN npm ci
+RUN npm ci --include=dev
 
 FROM deps AS build
 COPY tsconfig.base.json ./
