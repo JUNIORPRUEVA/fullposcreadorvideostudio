@@ -14,9 +14,12 @@ COPY tsconfig.base.json ./
 COPY apps/api apps/api
 COPY packages/shared packages/shared
 COPY packages/video packages/video
+RUN cp apps/api/prisma/schema.postgres.prisma apps/api/prisma/schema.prisma
+ENV DATABASE_URL=postgresql://user:password@localhost:5432/video_studio
 RUN npm run build --workspace @fullpos-ad-studio/shared \
   && npm run build --workspace @fullpos-ad-studio/video \
   && npm run build --workspace @fullpos-ad-studio/api \
+  && npm run prisma:generate --workspace @fullpos-ad-studio/api \
   && npm prune --omit=dev
 
 FROM base AS runtime
@@ -29,4 +32,4 @@ COPY --from=build /app/apps/api apps/api
 COPY --from=build /app/packages packages
 WORKDIR /app/apps/api
 EXPOSE 4000
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "npx prisma db push --schema prisma/schema.prisma && node dist/main.js"]
