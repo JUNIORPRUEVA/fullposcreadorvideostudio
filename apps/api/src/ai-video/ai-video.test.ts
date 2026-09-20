@@ -64,7 +64,7 @@ test("cost guard requires explicit confirmation", () => {
 test("RunPod provider sends official WAN 2.2 720p endpoint and input contract", async () => {
   let requestBody = "";
   let requestedUrl = "";
-  const provider = new RunpodPublicVideoProvider(
+  const provider = RunpodPublicVideoProvider.withDependencies(
     async (url, init) => {
       requestedUrl = url;
       requestBody = String(init.body);
@@ -110,7 +110,7 @@ test("WAN 2.2 configured preview cost and endpoint stay stable", () => {
 });
 
 test("RunPod provider maps 404 without retrying", async () => {
-  const provider = new RunpodPublicVideoProvider(
+  const provider = RunpodPublicVideoProvider.withDependencies(
     async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => "not found" }),
     () => "test-key"
   );

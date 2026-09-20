@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { motionToShotType, type AiMotionStyle, type AiVideoProfile } from "./ai-video.profiles.js";
 import { readRunpodApiKey } from "./runpod-env.js";
 
@@ -27,20 +27,16 @@ export interface AiVideoProvider {
 }
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Pick<Response, "ok" | "status" | "json" | "text">>;
-export const RUNPOD_FETCH = "RUNPOD_FETCH";
-export const RUNPOD_API_KEY_READER = "RUNPOD_API_KEY_READER";
-
 @Injectable()
 export class RunpodPublicVideoProvider implements AiVideoProvider {
-  private readonly fetchFn: FetchLike;
-  private readonly apiKeyReader: typeof readRunpodApiKey;
+  private fetchFn: FetchLike = fetch;
+  private apiKeyReader: typeof readRunpodApiKey = readRunpodApiKey;
 
-  constructor(
-    @Optional() @Inject(RUNPOD_FETCH) fetchFn?: FetchLike,
-    @Optional() @Inject(RUNPOD_API_KEY_READER) apiKeyReader?: typeof readRunpodApiKey
-  ) {
-    this.fetchFn = fetchFn ?? fetch;
-    this.apiKeyReader = apiKeyReader ?? readRunpodApiKey;
+  static withDependencies(fetchFn: FetchLike, apiKeyReader: typeof readRunpodApiKey) {
+    const provider = new RunpodPublicVideoProvider();
+    provider.fetchFn = fetchFn;
+    provider.apiKeyReader = apiKeyReader;
+    return provider;
   }
 
   async generateImageToVideo(input: GenerateImageToVideoInput): Promise<AiVideoGenerationResult> {
