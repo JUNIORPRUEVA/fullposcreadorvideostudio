@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import {
+  Archive,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -15,15 +16,18 @@ import {
   Image as ImageIcon,
   MousePointer,
   MoreVertical,
+  Pencil,
   Play,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Save,
   Settings,
   Sparkles,
   Square,
   Trash2,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import type { AssetType, VideoType } from "@fullpos-ad-studio/shared";
 
@@ -159,6 +163,11 @@ type BrandProfile = {
   slug: string;
   archived: boolean;
   isDefault: boolean;
+  logoPrimaryAssetId?: string;
+  logoLightAssetId?: string;
+  logoDarkAssetId?: string;
+  watermarkAssetId?: string;
+  assets?: BrandAsset[];
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -180,6 +189,29 @@ type BrandProfile = {
   fontHeading: string;
   fontBody: string;
   projects?: Array<{ id: string; name: string; videoType: VideoType }>;
+};
+
+type BrandAsset = {
+  id: string;
+  type: string;
+  filename: string;
+  mimeType: string;
+};
+
+type BrandForm = {
+  name: string;
+  description: string;
+  website: string;
+  whatsapp: string;
+  email: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  defaultVoiceProfile: string;
+  defaultNarrationStyle: Draft["narrationStyle"];
+  defaultMusicTrackId: string;
+  defaultCTA: string;
+  watermarkEnabled: boolean;
 };
 
 type StoryScene = {
@@ -348,15 +380,15 @@ const uploadFields: Array<{ type: AssetType; label: string; required?: boolean }
 const imageMimeTypes = ["image/png", "image/jpeg", "image/webp"];
 const mediaMimeTypes = [...imageMimeTypes, "video/mp4", "video/webm"];
 
-const videoTypeCards: Array<{ id: VideoType; label: string; description: string; template: Draft["template"]; format: Draft["format"]; narrationStyle: Draft["narrationStyle"]; subtitleMode: Draft["subtitleMode"]; musicEnabled: boolean; aiEnabled: boolean; durationMode: string }> = [
-  { id: "ADVERTISEMENT", label: "Publicidad", description: "Promociona tu producto o servicio", template: "saas-premium-ad", format: "9:16", narrationStyle: "PROMOTIONAL", subtitleMode: "OFF", musicEnabled: true, aiEnabled: true, durationMode: "30_SEC" },
-  { id: "QUICK_TUTORIAL", label: "Tutorial rápido", description: "Explica una función en pocos minutos", template: "quick-tutorial", format: "9:16", narrationStyle: "QUICK_TUTORIAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
-  { id: "COURSE", label: "Curso / Capacitación", description: "Capacita usuarios paso a paso", template: "professional-course", format: "16:9", narrationStyle: "TRAINING", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "LONG_FORM" },
-  { id: "ONBOARDING", label: "Onboarding", description: "Enseña cómo comenzar", template: "customer-onboarding", format: "16:9", narrationStyle: "TRAINING", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
-  { id: "FEATURE_SPOTLIGHT", label: "Mostrar una función", description: "Presenta una herramienta específica", template: "feature-spotlight", format: "16:9", narrationStyle: "CORPORATE", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: true, aiEnabled: true, durationMode: "60_SEC" },
-  { id: "SUPPORT", label: "Soporte", description: "Explica cómo resolver un problema", template: "visual-support", format: "16:9", narrationStyle: "QUICK_TUTORIAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
-  { id: "BRAND_MOTIVATIONAL", label: "Marca / Motivación", description: "Contenido institucional o inspirador", template: "brand-motivational", format: "9:16", narrationStyle: "MOTIVATIONAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: true, aiEnabled: true, durationMode: "60_SEC" },
-  { id: "FREEFORM", label: "Video libre", description: "Construye tu video desde cero", template: "brand-motivational", format: "16:9", narrationStyle: "CORPORATE", subtitleMode: "OFF", musicEnabled: false, aiEnabled: false, durationMode: "CUSTOM" }
+const videoTypeCards: Array<{ id: VideoType; icon: string; label: string; description: string; meta: string; template: Draft["template"]; format: Draft["format"]; narrationStyle: Draft["narrationStyle"]; subtitleMode: Draft["subtitleMode"]; musicEnabled: boolean; aiEnabled: boolean; durationMode: string }> = [
+  { id: "ADVERTISEMENT", icon: "AD", label: "Publicidad", description: "Promociona tu producto o servicio", meta: "9:16 · Música · IA opcional", template: "saas-premium-ad", format: "9:16", narrationStyle: "PROMOTIONAL", subtitleMode: "OFF", musicEnabled: true, aiEnabled: true, durationMode: "30_SEC" },
+  { id: "QUICK_TUTORIAL", icon: "TU", label: "Tutorial rápido", description: "Explica una función en pocos minutos", meta: "9:16 o 16:9 · Narración · Subtítulos", template: "quick-tutorial", format: "9:16", narrationStyle: "QUICK_TUTORIAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
+  { id: "COURSE", icon: "CA", label: "Curso / Capacitación", description: "Capacita usuarios paso a paso", meta: "16:9 · Capítulos · Narración", template: "professional-course", format: "16:9", narrationStyle: "TRAINING", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "LONG_FORM" },
+  { id: "ONBOARDING", icon: "PS", label: "Primeros pasos", description: "Enseña a nuevos usuarios cómo comenzar", meta: "16:9 · Paso a paso", template: "customer-onboarding", format: "16:9", narrationStyle: "TRAINING", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
+  { id: "FEATURE_SPOTLIGHT", icon: "UI", label: "Mostrar una función", description: "Presenta una herramienta específica", meta: "16:9 o 9:16 · UI real · IA opcional", template: "feature-spotlight", format: "16:9", narrationStyle: "CORPORATE", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: true, aiEnabled: true, durationMode: "60_SEC" },
+  { id: "SUPPORT", icon: "SO", label: "Soporte", description: "Explica cómo resolver un problema", meta: "16:9 · Claro y directo", template: "visual-support", format: "16:9", narrationStyle: "QUICK_TUTORIAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: false, aiEnabled: false, durationMode: "SCENE_BASED" },
+  { id: "BRAND_MOTIVATIONAL", icon: "BR", label: "Marca / Motivación", description: "Crea contenido institucional o inspirador", meta: "Flexible · Música · IA opcional", template: "brand-motivational", format: "9:16", narrationStyle: "MOTIVATIONAL", subtitleMode: "AUTO_FROM_NARRATION", musicEnabled: true, aiEnabled: true, durationMode: "60_SEC" },
+  { id: "FREEFORM", icon: "LI", label: "Video libre", description: "Construye el video a tu manera", meta: "Formato y estructura personalizados", template: "brand-motivational", format: "16:9", narrationStyle: "CORPORATE", subtitleMode: "OFF", musicEnabled: false, aiEnabled: false, durationMode: "CUSTOM" }
 ];
 
 const nav: Array<[Section, typeof Gauge]> = [
@@ -397,6 +429,11 @@ export default function Home() {
   const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState({ type: "info", text: "Listo para crear un video." });
+  const [brandModal, setBrandModal] = useState<{ mode: "create" | "edit"; brand?: BrandProfile } | null>(null);
+  const [brandForm, setBrandForm] = useState<BrandForm>(emptyBrandForm());
+  const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
+  const [brandLogoPreview, setBrandLogoPreview] = useState("");
+  const [brandSearch, setBrandSearch] = useState("");
 
   useEffect(() => {
     void refreshAll();
@@ -437,6 +474,7 @@ export default function Home() {
   }, [projects]);
 
   const selectedProject = projects.find((project) => project.id === projectId);
+  const selectedBrand = brands.find((brand) => brand.id === draft.brandProfileId);
   const latestJob = renderJob ?? selectedProject?.renderJobs?.[0] ?? null;
   const isRendering = latestJob?.status === "QUEUED" || latestJob?.status === "RENDERING";
   const downloadUrl = latestJob?.status === "COMPLETED" ? `${API_URL}/renders/${latestJob.id}/file` : "";
@@ -448,9 +486,10 @@ export default function Home() {
 
   async function loadBrands() {
     try {
-      const next = await fetchJson<BrandProfile[]>(`${API_URL}/brands`);
+      const next = await fetchJson<BrandProfile[]>(`${API_URL}/brands?includeArchived=true`);
       setBrands(next);
-      const preferred = next.find((brand) => brand.isDefault) ?? next[0];
+      const active = next.filter((brand) => !brand.archived && !isDemoBrand(brand));
+      const preferred = active.find((brand) => brand.isDefault) ?? active[0];
       if (preferred) {
         setDraft((current) => current.brandProfileId ? current : applyBrandToDraft(current, preferred));
       }
@@ -608,29 +647,70 @@ export default function Home() {
     }
   }
 
-  async function uploadSceneMedia(sceneId: string, file?: File) {
-    if (!file) return;
-    const isVideo = file.type === "video/mp4" || file.type === "video/webm";
-    const isImage = imageMimeTypes.includes(file.type);
-    if (!isVideo && !isImage) return show("error", "Usa una imagen PNG, JPG, WEBP o un video MP4/WEBM.");
-    const maxSize = isVideo ? 250 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (file.size > maxSize) return show("error", `El archivo supera ${Math.round(maxSize / 1024 / 1024)}MB.`);
-    const type: AssetType = isVideo ? "screen_recording" : "image";
+  async function uploadSceneMedia(insertAfterSceneId: string | undefined, files?: FileList | File[]) {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return [];
+    const validFiles: File[] = [];
+    for (const file of selectedFiles) {
+      const isVideo = file.type === "video/mp4" || file.type === "video/webm";
+      const isImage = imageMimeTypes.includes(file.type);
+      if (!isVideo && !isImage) {
+        show("error", "Usa imágenes PNG, JPG, WEBP o videos MP4/WEBM.");
+        return [];
+      }
+      const maxSize = isVideo ? 250 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        show("error", `${file.name} supera ${Math.round(maxSize / 1024 / 1024)}MB.`);
+        return [];
+      }
+      validFiles.push(file);
+    }
     try {
-      setBusy(`scene-media-${sceneId}`);
+      setBusy("scene-media-batch");
       const id = await ensureProject();
-      const form = new FormData();
-      form.append("file", file);
-      const asset = await fetchJson<{ id: string }>(`${API_URL}/projects/${id}/assets?type=${type}`, { method: "POST", body: form });
-      await fetchJson(`${API_URL}/projects/${id}/scenes/${sceneId}`, {
-        method: "PATCH",
+      const currentProject = await fetchJson<Project>(`${API_URL}/projects/${id}`);
+      const orderedScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const insertIndex = insertAfterSceneId ? orderedScenes.findIndex((scene) => scene.id === insertAfterSceneId) + 1 : orderedScenes.length;
+      const chapter = insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
+      const createdIds: string[] = [];
+      for (const [index, file] of validFiles.entries()) {
+        const isVideo = file.type === "video/mp4" || file.type === "video/webm";
+        const type: AssetType = isVideo ? "screen_recording" : "image";
+        const form = new FormData();
+        form.append("file", file);
+        const asset = await fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${id}/assets?type=${type}`, { method: "POST", body: form });
+        const scene = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: isVideo ? "SCREEN_RECORDING" : "IMAGE",
+            order: orderedScenes.length + index + 1,
+            chapter,
+            title: cleanFileTitle(file.name) || `Paso ${orderedScenes.length + index + 1}`,
+            duration: isVideo ? Math.min(Math.max(Math.round(asset.durationSeconds ?? 6), 3), 18) : 5,
+            durationMode: "AUTO",
+            mediaAssetId: asset.id,
+            narrationScript: ""
+          })
+        });
+        createdIds.push(scene.id);
+      }
+      const nextOrder = [
+        ...orderedScenes.slice(0, insertIndex).map((scene) => scene.id),
+        ...createdIds,
+        ...orderedScenes.slice(insertIndex).map((scene) => scene.id)
+      ];
+      await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaAssetId: asset.id, type: isVideo ? "SCREEN_RECORDING" : "IMAGE" })
+        body: JSON.stringify({ ids: nextOrder })
       });
       await refreshAll();
-      show("success", "Medio agregado al paso.");
+      show("success", `${validFiles.length} archivo${validFiles.length === 1 ? "" : "s"} agregado${validFiles.length === 1 ? "" : "s"}.`);
+      return createdIds;
     } catch (error) {
       show("error", getErrorMessage(error));
+      return [];
     } finally {
       setBusy(null);
     }
@@ -653,35 +733,55 @@ export default function Home() {
     show("info", `${card.label} seleccionado.`);
   }
 
-  function selectBrand(brand: BrandProfile) {
-    setDraft((current) => applyBrandToDraft(current, brand));
-    show("info", `Marca seleccionada: ${brand.name}.`);
+  async function selectBrand(brand: BrandProfile) {
+    const nextDraft = applyBrandToDraft(draft, brand);
+    setDraft(nextDraft);
+    if (projectId) {
+      try {
+        await fetchJson<Project>(`${API_URL}/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nextDraft)
+        });
+        await refreshAll();
+        show("success", `Empresa seleccionada: ${brand.name}. Guardado.`);
+        return;
+      } catch (error) {
+        show("error", getErrorMessage(error));
+        return;
+      }
+    }
+    show("info", `Empresa seleccionada: ${brand.name}.`);
   }
 
-  async function createBrand() {
+  function openBrandModal(mode: "create" | "edit", brand?: BrandProfile) {
+    setBrandModal({ mode, brand });
+    setBrandForm(brand ? brandToForm(brand) : emptyBrandForm());
+    setBrandLogoFile(null);
+    setBrandLogoPreview(brand ? logoUrl(brand) : "");
+  }
+
+  async function saveBrand() {
     try {
-      setBusy("brand-create");
-      const brand = await fetchJson<BrandProfile>(`${API_URL}/brands`, {
-        method: "POST",
+      if (!brandForm.name.trim()) return show("error", "El nombre de empresa es obligatorio.");
+      setBusy("brand-save");
+      const editing = brandModal?.mode === "edit" && brandModal.brand;
+      const brand = await fetchJson<BrandProfile>(editing ? `${API_URL}/brands/${brandModal.brand!.id}` : `${API_URL}/brands`, {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Nueva marca",
-          website: "marca.example",
-          primaryColor: "#2563eb",
-          secondaryColor: "#14b8a6",
-          accentColor: "#f59e0b",
-          backgroundColor: "#f8fbff",
-          textColor: "#111827",
-          defaultCTA: "Conoce más",
-          defaultOffer: "Nueva solución",
-          defaultPriceText: "",
-          defaultNarrationStyle: "CORPORATE",
-          defaultMusicVolume: 0.12
-        })
+        body: JSON.stringify(brandPayload(brandForm))
       });
+      let saved = brand;
+      if (brandLogoFile) {
+        const form = new FormData();
+        form.append("file", brandLogoFile);
+        await fetchJson(`${API_URL}/brands/${brand.id}/assets?type=LOGO`, { method: "POST", body: form });
+        saved = await fetchJson<BrandProfile>(`${API_URL}/brands/${brand.id}`);
+      }
       await loadBrands();
-      selectBrand(brand);
-      show("success", "Marca creada.");
+      await selectBrand(saved);
+      setBrandModal(null);
+      show("success", "Empresa guardada.");
     } catch (error) {
       show("error", getErrorMessage(error));
     } finally {
@@ -708,6 +808,49 @@ export default function Home() {
       await fetchJson(`${API_URL}/brands/${id}/archive`, { method: "POST" });
       await loadBrands();
       show("success", "Marca archivada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restoreBrand(id: string) {
+    try {
+      setBusy(`brand-restore-${id}`);
+      await fetchJson(`${API_URL}/brands/${id}/restore`, { method: "POST" });
+      await loadBrands();
+      show("success", "Empresa restaurada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteBrand(brand: BrandProfile) {
+    const count = brand.projects?.length ?? 0;
+    if (brand.isDefault) return show("error", "No puedes eliminar la empresa predeterminada. Selecciona otra como predeterminada primero.");
+    if (count > 0) return show("error", `Esta empresa está siendo usada por ${count} proyecto${count === 1 ? "" : "s"}. Archívala o reasigna antes de eliminar.`);
+    if (!window.confirm("¿Eliminar esta empresa? Esta acción no se puede deshacer.")) return;
+    try {
+      setBusy(`brand-delete-${brand.id}`);
+      await fetchJson(`${API_URL}/brands/${brand.id}`, { method: "DELETE" });
+      await loadBrands();
+      show("success", "Empresa eliminada.");
+    } catch (error) {
+      show("error", getErrorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setDefaultBrand(id: string) {
+    try {
+      setBusy(`brand-default-${id}`);
+      await fetchJson(`${API_URL}/brands/${id}/default`, { method: "POST" });
+      await loadBrands();
+      show("success", "Empresa predeterminada actualizada.");
     } catch (error) {
       show("error", getErrorMessage(error));
     } finally {
@@ -1317,9 +1460,24 @@ export default function Home() {
                 ))}
               </div>
 
-              {step === 1 && <VideoTypeStep draft={draft} brands={brands} onSelectBrand={selectBrand} onSelect={selectVideoType} />}
+              {step === 1 && (
+                <VideoTypeStep
+                  draft={draft}
+                  brands={brands}
+                  selectedBrand={selectedBrand}
+                  search={brandSearch}
+                  setSearch={setBrandSearch}
+                  onSelectBrand={(brand) => void selectBrand(brand)}
+                  onCreateBrand={() => openBrandModal("create")}
+                  onEditBrand={(brand) => openBrandModal("edit", brand)}
+                  onDuplicateBrand={duplicateBrand}
+                  onArchiveBrand={archiveBrand}
+                  onDeleteBrand={deleteBrand}
+                  onSelect={selectVideoType}
+                />
+              )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, file) => void uploadSceneMedia(sceneId, file)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} />}
               {step === 4 && (
                 <>
                   <FormatStep draft={draft} setDraft={setDraft} busy={busy} stylePreviewUrl={stylePreviewUrl} onPreviewStyle={previewStyle} />
@@ -1390,8 +1548,8 @@ export default function Home() {
 
               <div className="actions">
                 <button className="secondary" type="button" disabled={step === 1} onClick={() => setStep((value) => Math.max(1, value - 1))}>Atrás</button>
-                <button className="secondary" type="button" onClick={() => void saveDraft()} disabled={busy !== null}><Save size={16} />Guardar borrador</button>
-                <button className="primary" type="button" disabled={step === 6} onClick={() => setStep((value) => Math.min(6, value + 1))}>Siguiente</button>
+                {step > 1 ? <button className="secondary" type="button" onClick={() => void saveDraft()} disabled={busy !== null}><Save size={16} />Guardar borrador</button> : <span className="autosaveHint">Guardado automatico al continuar</span>}
+                <button className="primary" type="button" disabled={step === 6 || (step === 1 && (!draft.brandProfileId || !draft.videoType))} onClick={() => setStep((value) => Math.min(6, value + 1))}>{step === 1 ? "Continuar" : "Siguiente"}</button>
               </div>
             </div>
 
@@ -1400,7 +1558,21 @@ export default function Home() {
 
         {section === "Proyectos" && <ProjectList projects={projects} onOpen={openProject} onDuplicate={duplicateProject} onDelete={deleteProject} busy={busy} />}
         {section === "Videos" && <VideoList videos={videos} />}
-        {section === "Marcas" && <BrandManager brands={brands} busy={busy} selectedBrandId={draft.brandProfileId} onSelect={selectBrand} onCreate={createBrand} onDuplicate={duplicateBrand} onArchive={archiveBrand} />}
+        {section === "Marcas" && (
+          <BrandManager
+            brands={brands}
+            busy={busy}
+            selectedBrandId={draft.brandProfileId}
+            onSelect={(brand) => void selectBrand(brand)}
+            onCreate={() => openBrandModal("create")}
+            onEdit={(brand) => openBrandModal("edit", brand)}
+            onDuplicate={duplicateBrand}
+            onArchive={archiveBrand}
+            onRestore={restoreBrand}
+            onDelete={deleteBrand}
+            onSetDefault={setDefaultBrand}
+          />
+        )}
         {section === "Configuración" && (
           <section className="card settingsPanel">
             <h2>Preferencias locales</h2>
@@ -1420,44 +1592,203 @@ export default function Home() {
           </section>
         )}
       </main>
+      {brandModal ? (
+        <BrandModal
+          mode={brandModal.mode}
+          form={brandForm}
+          setForm={setBrandForm}
+          logoPreview={brandLogoPreview}
+          busy={busy}
+          onLogo={(file) => {
+            setBrandLogoFile(file);
+            setBrandLogoPreview(file ? URL.createObjectURL(file) : brandModal.brand ? logoUrl(brandModal.brand) : "");
+          }}
+          onClose={() => setBrandModal(null)}
+          onSave={() => void saveBrand()}
+        />
+      ) : null}
     </div>
   );
 }
 
-function VideoTypeStep({ draft, brands, onSelectBrand, onSelect }: { draft: Draft; brands: BrandProfile[]; onSelectBrand: (brand: BrandProfile) => void; onSelect: (card: (typeof videoTypeCards)[number]) => void }) {
+function VideoTypeStep({
+  draft,
+  brands,
+  selectedBrand,
+  search,
+  setSearch,
+  onSelectBrand,
+  onCreateBrand,
+  onEditBrand,
+  onDuplicateBrand,
+  onArchiveBrand,
+  onDeleteBrand,
+  onSelect
+}: {
+  draft: Draft;
+  brands: BrandProfile[];
+  selectedBrand?: BrandProfile;
+  search: string;
+  setSearch: (value: string) => void;
+  onSelectBrand: (brand: BrandProfile) => void;
+  onCreateBrand: () => void;
+  onEditBrand: (brand: BrandProfile) => void;
+  onDuplicateBrand: (id: string) => void;
+  onArchiveBrand: (id: string) => void;
+  onDeleteBrand: (brand: BrandProfile) => void;
+  onSelect: (card: (typeof videoTypeCards)[number]) => void;
+}) {
+  const normalBrands = brands.filter((brand) => !brand.archived && !isDemoBrand(brand));
+  const visibleBrands = normalBrands.filter((brand) => brand.name.toLowerCase().includes(search.toLowerCase()) || (brand.website ?? brand.slug).toLowerCase().includes(search.toLowerCase()));
   return (
-    <div className="sectionBlock">
-      <div className="sectionHeader">
-        <div>
-          <strong>Seleccionar marca</strong>
-          <p className="muted">La marca define logo, colores, website, CTA, voz, música y watermark por defecto.</p>
+    <div className="configStep">
+      <section className="configGroup">
+        <div className="sectionHeader">
+          <div>
+            <strong>Empresa / Marca</strong>
+            <p className="muted">Selecciona una empresa guardada o crea una nueva.</p>
+          </div>
+          <div className="rowActions">
+            {selectedBrand ? <button className="secondary" type="button" onClick={() => onEditBrand(selectedBrand)}><Pencil size={16} />Editar empresa</button> : null}
+            <button className="primary" type="button" onClick={onCreateBrand}><Plus size={18} />Nueva empresa</button>
+          </div>
         </div>
-      </div>
-      <div className="brandGrid">
-        {brands.map((brand) => (
-          <button key={brand.id} type="button" className={`brandCard ${draft.brandProfileId === brand.id ? "selected" : ""}`} onClick={() => onSelectBrand(brand)}>
-            <span className="brandSwatch" style={{ background: `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})` }}>{brand.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
-            <strong>{brand.name}</strong>
-            <small>{brand.website ?? brand.slug}{brand.isDefault ? " · Default" : ""}</small>
-          </button>
-        ))}
-      </div>
-      <div className="sectionHeader">
-        <div>
-          <strong>¿Qué quieres crear?</strong>
-          <p className="muted">Cada tipo ajusta plantilla, formato, música, subtítulos, narración y política de IA.</p>
+        {normalBrands.length > 6 ? <input className="searchInput" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar empresa..." /> : null}
+        {visibleBrands.length === 0 ? (
+          <div className="emptyState compactEmpty">
+            <strong>Aun no tienes empresas guardadas.</strong>
+            <button className="primary" type="button" onClick={onCreateBrand}><Plus size={18} />Crear primera empresa</button>
+          </div>
+        ) : (
+          <div className="brandGrid compactBrands">
+            {visibleBrands.map((brand) => (
+              <div key={brand.id} className={`brandCardShell ${draft.brandProfileId === brand.id ? "selected" : ""}`}>
+                <button type="button" className="brandCard compactBrandCard" onClick={() => onSelectBrand(brand)}>
+                  <LogoMark brand={brand} />
+                  <span>
+                    <strong>{brand.name}</strong>
+                    <small>{brand.website ?? brand.slug}{brand.isDefault ? " · Predeterminada" : ""}</small>
+                  </span>
+                  {draft.brandProfileId === brand.id ? <span className="selectedCheck">✓</span> : null}
+                </button>
+                <details className="compactMenu">
+                  <summary><MoreVertical size={16} /></summary>
+                  <div>
+                    <button type="button" onClick={() => onEditBrand(brand)}><Pencil size={14} />Editar</button>
+                    <button type="button" onClick={() => onDuplicateBrand(brand.id)}><Copy size={14} />Duplicar</button>
+                    <button type="button" onClick={() => onArchiveBrand(brand.id)}><Archive size={14} />Archivar</button>
+                    <button type="button" onClick={() => onDeleteBrand(brand)}><Trash2 size={14} />Eliminar</button>
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="configGroup">
+        <div className="sectionHeader">
+          <div>
+            <strong>¿Qué quieres crear?</strong>
+            <p className="muted">Elige el tipo de video para ajustar formato, narración y estructura.</p>
+          </div>
         </div>
-      </div>
-      <div className="formatOptions">
-        {videoTypeCards.map((card) => (
-          <button key={card.id} type="button" className={`option ${draft.videoType === card.id ? "selected" : ""}`} onClick={() => onSelect(card)}>
-            <strong>{card.label}</strong>
-            <p>{card.description}</p>
-            <span className="muted">{formatUseLabel(card.format)} · {card.musicEnabled ? "con música" : "sin música"}</span>
-          </button>
-        ))}
-      </div>
+        <div className="videoTypeGrid">
+          {videoTypeCards.map((card) => (
+            <button key={card.id} type="button" className={`videoTypeCard ${draft.videoType === card.id ? "selected" : ""}`} onClick={() => onSelect(card)}>
+              <span className="typeIcon">{card.icon}</span>
+              <strong>{card.label}</strong>
+              <p>{card.description}</p>
+              <small>{card.meta}</small>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
+  );
+}
+
+function LogoMark({ brand }: { brand: BrandProfile }) {
+  const url = logoUrl(brand);
+  return (
+    <span className="brandLogoMark" style={{ background: url ? undefined : `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})` }}>
+      {url ? <img src={url} alt="" /> : initials(brand.name)}
+    </span>
+  );
+}
+
+function BrandModal({ mode, form, setForm, logoPreview, busy, onLogo, onClose, onSave }: { mode: "create" | "edit"; form: BrandForm; setForm: (form: BrandForm) => void; logoPreview: string; busy: string | null; onLogo: (file: File | null) => void; onClose: () => void; onSave: () => void }) {
+  return (
+    <div className="modalBackdrop" role="dialog" aria-modal="true">
+      <section className="brandModal">
+        <div className="modalHeader">
+          <div>
+            <h2>{mode === "create" ? "Nueva empresa" : "Editar empresa"}</h2>
+            <p className="muted">Guarda datos reutilizables para todos los videos de esta marca.</p>
+          </div>
+          <button className="secondary iconButton" type="button" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div className="modalSection">
+          <strong>Identidad</strong>
+          <div className="brandIdentityGrid">
+            <label className="logoUploader">
+              <span className="logoPreview">{logoPreview ? <img src={logoPreview} alt="" /> : <ImageIcon size={32} />}</span>
+              <span><Upload size={16} />Subir logo</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => onLogo(event.target.files?.[0] ?? null)} />
+            </label>
+            <div className="formGrid compact">
+              <Field label="Nombre de empresa / marca" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+              <Field label="Descripcion corta" value={form.description} onChange={(description) => setForm({ ...form, description })} />
+            </div>
+          </div>
+        </div>
+
+        <div className="modalSection">
+          <strong>Información</strong>
+          <div className="formGrid compact">
+            <Field label="Website" value={form.website} onChange={(website) => setForm({ ...form, website })} />
+            <Field label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
+            <Field label="Email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+          </div>
+        </div>
+
+        <div className="modalSection">
+          <strong>Estilo</strong>
+          <div className="colorGrid">
+            <ColorField label="Color principal" value={form.primaryColor} onChange={(primaryColor) => setForm({ ...form, primaryColor })} />
+            <ColorField label="Color secundario" value={form.secondaryColor} onChange={(secondaryColor) => setForm({ ...form, secondaryColor })} />
+            <ColorField label="Color de acento" value={form.accentColor} onChange={(accentColor) => setForm({ ...form, accentColor })} />
+          </div>
+        </div>
+
+        <details className="optionalPrefs">
+          <summary>Preferencias opcionales</summary>
+          <div className="formGrid compact">
+            <label className="field"><span>Voz predeterminada</span><input value={form.defaultVoiceProfile} onChange={(event) => setForm({ ...form, defaultVoiceProfile: event.target.value })} /></label>
+            <label className="field"><span>Estilo de narración</span><select value={form.defaultNarrationStyle} onChange={(event) => setForm({ ...form, defaultNarrationStyle: event.target.value as Draft["narrationStyle"] })}><option value="PROMOTIONAL">Promocional</option><option value="TRAINING">Capacitación</option><option value="CORPORATE">Corporativo</option><option value="MOTIVATIONAL">Motivacional</option></select></label>
+            <Field label="CTA predeterminado" value={form.defaultCTA} onChange={(defaultCTA) => setForm({ ...form, defaultCTA })} />
+            <Toggle label="Watermark activo" checked={form.watermarkEnabled} onChange={(watermarkEnabled) => setForm({ ...form, watermarkEnabled })} />
+          </div>
+        </details>
+
+        <div className="modalActions">
+          <button className="secondary" type="button" onClick={onClose}>Cancelar</button>
+          <button className="primary" type="button" disabled={busy === "brand-save"} onClick={onSave}>Guardar empresa</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="field colorField">
+      <span>{label}</span>
+      <div>
+        <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
+        <input value={value} onChange={(event) => onChange(event.target.value)} />
+      </div>
+    </label>
   );
 }
 
@@ -1500,7 +1831,7 @@ function StoryboardStep({
   onPreviewScene: (sceneId: string) => void;
   onPreviewChapter: (chapter: string) => void;
   onPreviewFull: () => void;
-  onUploadSceneMedia: (sceneId: string, file?: File) => void;
+  onUploadSceneMedia: (insertAfterSceneId: string | undefined, files?: FileList | File[]) => Promise<string[]>;
 }) {
   const scenes = [...(project?.scenes ?? [])].sort((a, b) => a.order - b.order);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -1516,6 +1847,11 @@ function StoryboardStep({
   const narrationSeconds = estimateSpeechSeconds(selected?.narrationScript ?? "");
   function patchSelected(patch: Partial<StoryScene>) {
     if (selected) onUpdateScene(selected.id, patch);
+  }
+
+  async function addMediaFiles(files?: FileList | File[]) {
+    const createdIds = await onUploadSceneMedia(selected?.id, files);
+    if (createdIds[0]) setSelectedId(createdIds[0]);
   }
   function addFocus(x = 0.5, y = 0.5, intensity: "soft" | "normal" | "close" = "normal") {
     if (!selected) return;
@@ -1568,7 +1904,7 @@ function StoryboardStep({
     ? chapters.map((chapter) => ({ chapter, scenes: scenes.filter((scene) => scene.chapter === chapter) }))
     : [{ chapter: "", scenes }];
   return (
-    <div className="sectionBlock">
+    <div className="sectionBlock editorDark">
       <div className="sectionHeader">
         <div>
           <strong>Editar video</strong>
@@ -1618,8 +1954,18 @@ function StoryboardStep({
         </div>
         <div className="previewColumn">
           <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : selectedAsset?.filename ?? "Selecciona o sube un medio"}</small></div>
-          <div className={`trainingPreview directPreview ${activeTool ? "isTargeting" : ""}`} onClick={onPreviewClick} onMouseDown={onPreviewMouseDown} onMouseUp={onPreviewMouseUp}>
-            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl ? (isVideoMedia ? <video controls src={mediaUrl} /> : <img src={mediaUrl} alt="" />) : <div className="emptyState"><ImageIcon size={34} /><p>Agrega una captura o grabación para comenzar.</p><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Subir archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => selected && onUploadSceneMedia(selected.id, event.target.files?.[0])} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+          <div
+            className={`trainingPreview directPreview ${activeTool ? "isTargeting" : ""}`}
+            onClick={onPreviewClick}
+            onMouseDown={onPreviewMouseDown}
+            onMouseUp={onPreviewMouseUp}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              void addMediaFiles(event.dataTransfer.files);
+            }}
+          >
+            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl ? (isVideoMedia ? <video controls src={mediaUrl} /> : <img src={mediaUrl} alt="" />) : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>Agrega capturas o grabaciones para comenzar.</p><small>Arrastra varios archivos aquí o selecciónalos de una vez.</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Subir archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}><Play size={16} />Ver paso</button>
@@ -1634,7 +1980,8 @@ function StoryboardStep({
               <Field label="Título del paso" value={selected.title} onChange={(title) => patchSelected({ title })} />
               <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} />
               <label className="field"><span>Medio</span><select value={selected.mediaAssetId ?? ""} onChange={(event) => patchSelected({ mediaAssetId: event.target.value || undefined, type: assetSceneType(project?.assets.find((asset) => asset.id === event.target.value)) })}><option value="">Sin medio</option>{(project?.assets ?? []).map((asset) => <option key={asset.id} value={asset.id}>{asset.filename}</option>)}</select></label>
-              <label className="field fileButton secondary"><Upload size={16} />Cambiar medio<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => onUploadSceneMedia(selected.id, event.target.files?.[0])} /></label>
+              <label className="field fileButton secondary"><Upload size={16} />Agregar archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label>
+              <small className="muted">Puedes elegir muchos archivos; se creará un paso por cada uno.</small>
               <label className="field"><span>Duración</span><input type="number" min="1" step="0.5" value={selected.duration} onChange={(event) => patchSelected({ duration: Number(event.target.value) })} /></label>
               {isVideoMedia ? <div className="trimBox"><strong>Recortar video</strong><div className="formGrid compact"><label className="field"><span>Inicio</span><input type="number" min="0" step="0.1" value={selected.trimStartSeconds ?? 0} onChange={(event) => patchSelected({ trimStartSeconds: Number(event.target.value) })} /></label><label className="field"><span>Fin</span><input type="number" min="0" step="0.1" value={selected.trimEndSeconds ?? selectedAsset?.durationSeconds ?? selected.duration} onChange={(event) => patchSelected({ trimEndSeconds: Number(event.target.value) })} /></label></div><small>Seleccionado: {formatSeconds(selectedDuration)}</small><button className="secondary" type="button" onClick={() => onPreviewScene(selected.id)}><Play size={14} />Reproducir selección</button></div> : null}
             </EditorSection>
@@ -1762,6 +2109,15 @@ function estimateSpeechSeconds(text: string) {
 
 function formatSeconds(value: number) {
   return `${Math.max(0, value).toFixed(1)} s`;
+}
+
+function cleanFileTitle(filename: string) {
+  return filename
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function AssetsStep({ previews, assetNames, project, busy, onUpload, onUploadMany }: { previews: Record<string, string>; assetNames: Record<string, string>; project?: Project; busy: string | null; onUpload: (type: AssetType, file?: File) => void; onUploadMany: (files?: FileList | File[], startType?: AssetType) => void }) {
@@ -2111,24 +2467,61 @@ function VideoList({ videos }: { videos: RenderJob[] }) {
   );
 }
 
-function BrandManager({ brands, busy, selectedBrandId, onSelect, onCreate, onDuplicate, onArchive }: { brands: BrandProfile[]; busy: string | null; selectedBrandId?: string; onSelect: (brand: BrandProfile) => void; onCreate: () => void; onDuplicate: (id: string) => void; onArchive: (id: string) => void }) {
+function BrandManager({
+  brands,
+  busy,
+  selectedBrandId,
+  onSelect,
+  onCreate,
+  onEdit,
+  onDuplicate,
+  onArchive,
+  onRestore,
+  onDelete,
+  onSetDefault
+}: {
+  brands: BrandProfile[];
+  busy: string | null;
+  selectedBrandId?: string;
+  onSelect: (brand: BrandProfile) => void;
+  onCreate: () => void;
+  onEdit: (brand: BrandProfile) => void;
+  onDuplicate: (id: string) => void;
+  onArchive: (id: string) => void;
+  onRestore: (id: string) => void;
+  onDelete: (brand: BrandProfile) => void;
+  onSetDefault: (id: string) => void;
+}) {
+  const activeBrands = brands.filter((brand) => !brand.archived);
+  const archivedBrands = brands.filter((brand) => brand.archived || isDemoBrand(brand));
   return (
     <section className="card">
       <div className="sectionHeader">
         <div>
-          <h2>Mis marcas</h2>
-          <p className="muted">Gestiona perfiles reutilizables de marca sin mezclar logos, CTAs, website, voz ni música entre clientes.</p>
+          <h2>Empresas / Marcas</h2>
+          <p className="muted">Gestiona perfiles reutilizables sin mezclar logos, CTAs, website, voz ni música entre clientes.</p>
         </div>
-        <button className="primary" type="button" disabled={busy === "brand-create"} onClick={onCreate}><Plus size={18} />Nueva marca</button>
+        <button className="primary" type="button" disabled={busy === "brand-save"} onClick={onCreate}><Plus size={18} />Nueva empresa</button>
       </div>
+      <BrandManagerGrid title="Activas" brands={activeBrands.filter((brand) => !isDemoBrand(brand))} busy={busy} selectedBrandId={selectedBrandId} onSelect={onSelect} onEdit={onEdit} onDuplicate={onDuplicate} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} onSetDefault={onSetDefault} />
+      <BrandManagerGrid title="Archivadas / Demo" brands={archivedBrands} busy={busy} selectedBrandId={selectedBrandId} archived onSelect={onSelect} onEdit={onEdit} onDuplicate={onDuplicate} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} onSetDefault={onSetDefault} />
+    </section>
+  );
+}
+
+function BrandManagerGrid({ title, brands, busy, selectedBrandId, archived = false, onSelect, onEdit, onDuplicate, onArchive, onRestore, onDelete, onSetDefault }: { title: string; brands: BrandProfile[]; busy: string | null; selectedBrandId?: string; archived?: boolean; onSelect: (brand: BrandProfile) => void; onEdit: (brand: BrandProfile) => void; onDuplicate: (id: string) => void; onArchive: (id: string) => void; onRestore: (id: string) => void; onDelete: (brand: BrandProfile) => void; onSetDefault: (id: string) => void }) {
+  return (
+    <div className="brandManagerSection">
+      <h3>{title}</h3>
+      {brands.length === 0 ? <p className="muted">No hay empresas en esta sección.</p> : null}
       <div className="brandManagerGrid">
         {brands.map((brand) => (
           <div className={`brandManagerCard ${selectedBrandId === brand.id ? "selected" : ""}`} key={brand.id}>
-            <div className="brandPreview" style={{ background: brand.backgroundColor, color: brand.textColor }}>
-              <span className="brandSwatch" style={{ background: `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})` }}>{brand.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+            <div className="brandPreview">
+              <LogoMark brand={brand} />
               <div>
                 <strong>{brand.name}</strong>
-                <small>{brand.website ?? brand.slug}</small>
+                <small>{brand.website ?? brand.slug}{brand.isDefault ? " · Predeterminada" : ""}</small>
               </div>
               <em style={{ background: brand.primaryColor, color: "#fff" }}>{brand.defaultCTA ?? "CTA"}</em>
             </div>
@@ -2139,15 +2532,18 @@ function BrandManager({ brands, busy, selectedBrandId, onSelect, onCreate, onDup
               <span><strong>Proyectos</strong>{brand.projects?.length ?? 0}</span>
             </div>
             <div className="buttonRow">
-              <button className="secondary" type="button" onClick={() => onSelect(brand)}>Open</button>
-              <button className="secondary" type="button" onClick={() => onSelect(brand)}>Edit</button>
-              <button className="secondary" type="button" disabled={busy === `brand-duplicate-${brand.id}`} onClick={() => onDuplicate(brand.id)}><Copy size={16} />Duplicate</button>
-              <button className="danger" type="button" disabled={busy === `brand-archive-${brand.id}` || brand.isDefault} onClick={() => onArchive(brand.id)}>Archive</button>
+              {!archived ? <button className="secondary" type="button" onClick={() => onSelect(brand)}>Usar</button> : null}
+              <button className="secondary" type="button" onClick={() => onEdit(brand)}><Pencil size={16} />Editar</button>
+              <button className="secondary" type="button" disabled={busy === `brand-duplicate-${brand.id}`} onClick={() => onDuplicate(brand.id)}><Copy size={16} />Duplicar</button>
+              {!brand.isDefault && !archived ? <button className="secondary" type="button" disabled={busy === `brand-default-${brand.id}`} onClick={() => onSetDefault(brand.id)}>Predeterminada</button> : null}
+              {archived && !isDemoBrand(brand) ? <button className="secondary" type="button" disabled={busy === `brand-restore-${brand.id}`} onClick={() => onRestore(brand.id)}><RotateCcw size={16} />Restaurar</button> : null}
+              {!archived ? <button className="secondary" type="button" disabled={busy === `brand-archive-${brand.id}` || brand.isDefault} onClick={() => onArchive(brand.id)}><Archive size={16} />Archivar</button> : null}
+              <button className="danger" type="button" disabled={busy === `brand-delete-${brand.id}`} onClick={() => onDelete(brand)}><Trash2 size={16} />Eliminar</button>
             </div>
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -2262,6 +2658,77 @@ function applyBrandToDraft(current: Draft, brand: BrandProfile): Draft {
     musicTrackId: brand.defaultMusicTrackId ?? current.musicTrackId,
     musicVolume: brand.defaultMusicVolume ?? current.musicVolume
   };
+}
+
+function emptyBrandForm(): BrandForm {
+  return {
+    name: "",
+    description: "",
+    website: "",
+    whatsapp: "",
+    email: "",
+    primaryColor: "#2563eb",
+    secondaryColor: "#14b8a6",
+    accentColor: "#f59e0b",
+    defaultVoiceProfile: "dominican-promotional",
+    defaultNarrationStyle: "CORPORATE",
+    defaultMusicTrackId: "",
+    defaultCTA: "Conoce más",
+    watermarkEnabled: false
+  };
+}
+
+function brandToForm(brand: BrandProfile): BrandForm {
+  return {
+    name: brand.name,
+    description: brand.defaultOffer ?? "",
+    website: brand.website ?? "",
+    whatsapp: brand.whatsapp ?? "",
+    email: brand.email ?? "",
+    primaryColor: brand.primaryColor,
+    secondaryColor: brand.secondaryColor,
+    accentColor: brand.accentColor,
+    defaultVoiceProfile: brand.defaultVoiceProfile ?? "",
+    defaultNarrationStyle: brand.defaultNarrationStyle ?? "CORPORATE",
+    defaultMusicTrackId: brand.defaultMusicTrackId ?? "",
+    defaultCTA: brand.defaultCTA ?? "",
+    watermarkEnabled: brand.watermarkEnabled
+  };
+}
+
+function brandPayload(form: BrandForm) {
+  return {
+    name: form.name,
+    website: form.website || undefined,
+    whatsapp: form.whatsapp || undefined,
+    email: form.email || undefined,
+    primaryColor: form.primaryColor,
+    secondaryColor: form.secondaryColor,
+    accentColor: form.accentColor,
+    backgroundColor: "#07111f",
+    textColor: "#edf5ff",
+    defaultOffer: form.description || undefined,
+    defaultCTA: form.defaultCTA || undefined,
+    defaultVoiceProfile: form.defaultVoiceProfile || undefined,
+    defaultNarrationStyle: form.defaultNarrationStyle,
+    defaultMusicTrackId: form.defaultMusicTrackId || undefined,
+    defaultMusicVolume: 0.12,
+    watermarkEnabled: form.watermarkEnabled
+  };
+}
+
+function logoUrl(brand: BrandProfile) {
+  const id = brand.logoPrimaryAssetId ?? brand.logoLightAssetId ?? brand.logoDarkAssetId ?? brand.watermarkAssetId;
+  return id ? `${API_URL}/brands/${brand.id}/assets/${id}/file` : "";
+}
+
+function initials(value: string) {
+  return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "VS";
+}
+
+function isDemoBrand(brand: BrandProfile) {
+  const value = `${brand.name} ${brand.slug}`.toLowerCase();
+  return value.includes("demo");
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

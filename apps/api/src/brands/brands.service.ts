@@ -118,8 +118,34 @@ export class BrandsService {
   }
 
   async archive(id: string) {
-    await this.findOne(id);
+    const brand = await this.findOne(id);
+    if (brand.isDefault) await this.ensureAnotherActiveBrand(id);
     return this.prisma.brandProfile.update({ where: { id }, data: { archived: true, isDefault: false }, include: includeBrand });
+  }
+
+  async restore(id: string) {
+    await this.findOne(id);
+    return this.prisma.brandProfile.update({ where: { id }, data: { archived: false }, include: includeBrand });
+  }
+
+  async remove(id: string) {
+    const brand = await this.findOne(id);
+    if (brand.isDefault) throw new BadRequestException("Default brand cannot be deleted before another default is selected.");
+    if (brand.projects.length > 0) throw new BadRequestException(`Brand is used by ${brand.projects.length} projects. Archive it or reassign projects before deleting.`);
+    await this.prisma.brandAsset.deleteMany({ where: { brandProfileId: id } });
+    return this.prisma.brandProfile.delete({ where: { id }, include: includeBrand });
+  }
+
+  async reassignAndDelete(id: string, body: Record<string, unknown>) {
+    const targetBrandId = str(body.targetBrandId, "targetBrandId", true);
+    if (!targetBrandId || targetBrandId === id) throw new BadRequestException("A different target brand is required.");
+    const source = await this.findOne(id);
+    const target = await this.findOne(targetBrandId);
+    if (source.isDefault) throw new BadRequestException("Default brand cannot be deleted before another default is selected.");
+    if (target.archived) throw new BadRequestException("Target brand must be active.");
+    await this.prisma.project.updateMany({ where: { brandProfileId: id }, data: { brandProfileId: targetBrandId } });
+    await this.prisma.brandAsset.deleteMany({ where: { brandProfileId: id } });
+    return this.prisma.brandProfile.delete({ where: { id }, include: includeBrand });
   }
 
   async setDefault(id: string) {
@@ -128,10 +154,21 @@ export class BrandsService {
     return this.prisma.brandProfile.update({ where: { id }, data: { isDefault: true, archived: false }, include: includeBrand });
   }
 
+  async findAsset(brandId: string, assetId: string) {
+    const asset = await this.prisma.brandAsset.findFirst({ where: { id: assetId, brandProfileId: brandId } });
+    if (!asset) throw new NotFoundException("Brand asset not found.");
+    return asset;
+  }
+
   async saveAsset(brandId: string, type: string, file?: Express.Multer.File) {
     await this.findOne(brandId);
     if (!file) throw new BadRequestException("File is required.");
     if (!brandAssetTypes.has(type)) throw new BadRequestException("Unsupported brand asset type.");
+    const imageTypes = ["LOGO", "LOGO_LIGHT", "LOGO_DARK", "WATERMARK", "BACKGROUND_IMAGE", "PRODUCT_IMAGE", "DEVICE_SCREENSHOT", "OTHER"];
+    if (imageTypes.includes(type) && !["image/png", "image/jpeg", "image/webp"].includes(file.mimetype)) {
+      throw new BadRequestException("Unsupported brand image file.");
+    }
+    if (file.size > 12 * 1024 * 1024) throw new BadRequestException("Brand asset file is too large.");
     if (!["image/png", "image/jpeg", "image/webp", "video/mp4", "video/webm", "audio/mpeg", "audio/wav", "audio/mp4", "audio/x-m4a"].includes(file.mimetype)) {
       throw new BadRequestException("Unsupported brand asset file.");
     }
@@ -167,6 +204,11 @@ export class BrandsService {
       count += 1;
     }
     return slug;
+  }
+
+  private async ensureAnotherActiveBrand(id: string) {
+    const count = await this.prisma.brandProfile.count({ where: { archived: false, id: { not: id } } });
+    if (count === 0) throw new BadRequestException("At least one active brand is required.");
   }
 }
 

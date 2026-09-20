@@ -25,4 +25,5 @@ storage/ai-backgrounds/*
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
 apps/api/prisma/dev.backup-*.db
+apps/api/prisma/dev.before-cloud-migration-*.db
 apps/api/prisma/storage/

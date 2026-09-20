@@ -1,9 +1,9 @@
 :root {
-  --bg: #f5f8fc;
-  --panel: #ffffff;
-  --line: #dbe6f3;
-  --ink: #132235;
-  --muted: #61748c;
+  --bg: #050913;
+  --panel: #0d1727;
+  --line: #22314a;
+  --ink: #edf5ff;
+  --muted: #9fb0c8;
   --blue: #1457d9;
   --cyan: #11a8c9;
   --green: #0f9f6e;
@@ -32,6 +32,7 @@ textarea {
 
 button {
   cursor: pointer;
+  color: inherit;
 }
 
 .shell {
@@ -42,7 +43,7 @@ button {
 
 .sidebar {
   border-right: 1px solid var(--line);
-  background: #fff;
+  background: #070d18;
   padding: 28px 20px;
   position: sticky;
   top: 0;
@@ -86,8 +87,8 @@ button {
 
 .navItem.active,
 .navItem:hover {
-  color: var(--blue);
-  background: #eef5ff;
+  color: #82b2ff;
+  background: #12213a;
 }
 
 .main {
@@ -138,7 +139,7 @@ button {
 
 .secondary {
   color: var(--ink);
-  background: #edf3fb;
+  background: #142238;
   text-decoration: none;
 }
 
@@ -183,7 +184,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 20px;
-  box-shadow: 0 18px 45px rgba(31, 55, 89, .07);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, .24);
 }
 
 .statValue {
@@ -210,10 +211,10 @@ button {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
-  border: 1px solid #e3edf8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px 14px;
-  background: #f8fbff;
+  background: #0b1424;
 }
 
 .editorHeader div:first-child {
@@ -233,7 +234,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 8px 12px;
-  background: #fff;
+  background: #101c2f;
   font-weight: 800;
 }
 
@@ -257,7 +258,7 @@ button {
 
 .step {
   border: 1px solid var(--line);
-  background: white;
+  background: #0d1727;
   color: var(--muted);
   border-radius: 999px;
   padding: 9px 12px;
@@ -265,8 +266,8 @@ button {
 
 .step.active {
   border-color: var(--blue);
-  color: var(--blue);
-  background: #eef5ff;
+  color: #82b2ff;
+  background: #12213a;
 }
 
 .formGrid {
@@ -286,7 +287,7 @@ button {
 
 .field label,
 .field span {
-  color: #3c5068;
+  color: #c6d5eb;
   font-weight: 700;
   font-size: 14px;
 }
@@ -297,7 +298,7 @@ button {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: white;
+  background: #0a1322;
   padding: 12px;
   color: var(--ink);
 }
@@ -319,7 +320,7 @@ button {
 .uploadBox {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   padding: 16px;
   min-height: 126px;
 }
@@ -328,7 +329,7 @@ button {
   grid-column: 1 / -1;
   border: 1px dashed #8fb7ff;
   border-radius: 8px;
-  background: #f7fbff;
+  background: #0b1628;
   padding: 16px;
   display: grid;
   gap: 8px;
@@ -389,7 +390,7 @@ button {
 .previewFrame {
   aspect-ratio: 9 / 16;
   width: 100%;
-  background: linear-gradient(145deg, #f7fbff, #eaf4ff);
+  background: linear-gradient(145deg, #081120, #0d1b31);
   border: 1px solid var(--line);
   border-radius: 8px;
   display: grid;
@@ -424,7 +425,7 @@ button {
 
 .progress {
   height: 10px;
-  background: #e5edf7;
+  background: #152238;
   border-radius: 999px;
   overflow: hidden;
 }
@@ -461,7 +462,7 @@ button {
   padding: 12px 14px;
   margin-bottom: 18px;
   color: var(--muted);
-  background: #fff;
+  background: #0d1727;
 }
 
 .notice.success {
@@ -477,16 +478,16 @@ button {
 }
 
 .notice.info {
-  color: #17498d;
-  background: #eef5ff;
-  border-color: #cfe0ff;
+  color: #9dc0ff;
+  background: #10213d;
+  border-color: #244a85;
 }
 
 .review {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 18px;
-  background: linear-gradient(145deg, #ffffff, #f7fbff);
+  background: linear-gradient(145deg, #0d1727, #0a1425);
   display: grid;
   gap: 16px;
 }
@@ -504,7 +505,7 @@ button {
 .reviewGrid span {
   display: grid;
   gap: 4px;
-  border: 1px solid #e3edf8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
   min-width: 0;
@@ -538,7 +539,7 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
+  background: #0d1727;
   color: var(--ink);
   font-weight: 750;
 }
@@ -556,14 +557,14 @@ button {
 .costGuard {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   padding: 14px;
   display: grid;
   gap: 12px;
 }
 
 .aiPanel {
-  background: linear-gradient(145deg, #ffffff, #f4f9ff);
+  background: linear-gradient(145deg, #0d1727, #0b1628);
 }
 
 .sectionHeader {
@@ -584,9 +585,9 @@ button {
 }
 
 .costGuard {
-  color: #17498d;
-  background: #eef5ff;
-  border-color: #cfe0ff;
+  color: #9dc0ff;
+  background: #10213d;
+  border-color: #244a85;
 }
 
 .costGuard span {
@@ -624,7 +625,7 @@ button {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
 }
 
 .storyCard > span {
@@ -633,8 +634,8 @@ button {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: #eaf2ff;
-  color: var(--blue);
+  background: #12213a;
+  color: #82b2ff;
   font-weight: 850;
 }
 
@@ -652,11 +653,39 @@ button {
   gap: 12px;
 }
 
+.configStep {
+  display: grid;
+  gap: 28px;
+}
+
+.configGroup {
+  display: grid;
+  gap: 14px;
+  max-width: 1180px;
+}
+
+.compactBrands {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.brandCardShell {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1424;
+}
+
+.brandCardShell.selected {
+  border-color: #4d8dff;
+  box-shadow: 0 0 0 1px rgba(77, 141, 255, .5);
+}
+
 .brandCard,
 .brandManagerCard {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   padding: 14px;
 }
 
@@ -665,6 +694,28 @@ button {
   gap: 8px;
   text-align: left;
   cursor: pointer;
+}
+
+.compactBrandCard {
+  width: 100%;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 12px 42px 12px 12px;
+  background: transparent;
+  border: 0;
+}
+
+.compactBrandCard span:not(.brandLogoMark):not(.selectedCheck) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.compactBrandCard small,
+.compactBrandCard strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brandCard.selected,
@@ -683,6 +734,158 @@ button {
   font-weight: 900;
 }
 
+.brandLogoMark {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 900;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  background:
+    linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.08) 75%),
+    linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.08) 75%);
+  background-color: #101c2f;
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
+}
+
+.brandLogoMark img,
+.logoPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.selectedCheck {
+  color: #9fc4ff;
+  font-weight: 900;
+}
+
+.compactMenu {
+  position: absolute;
+  right: 8px;
+  top: 9px;
+}
+
+.compactMenu summary {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  list-style: none;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.compactMenu summary::-webkit-details-marker {
+  display: none;
+}
+
+.compactMenu[open] summary,
+.compactMenu summary:hover {
+  background: #142238;
+  color: var(--ink);
+}
+
+.compactMenu div {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  z-index: 5;
+  min-width: 148px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111d31;
+  padding: 6px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.45);
+  display: grid;
+  gap: 2px;
+}
+
+.compactMenu button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.compactMenu button:hover {
+  background: #172a47;
+}
+
+.videoTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.videoTypeCard {
+  min-height: 132px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1727;
+  color: var(--ink);
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 5px 10px;
+  text-align: left;
+  align-content: start;
+}
+
+.videoTypeCard:hover {
+  border-color: #345987;
+  background: #101c2f;
+}
+
+.videoTypeCard.selected {
+  border-color: #4d8dff;
+  box-shadow: inset 0 0 0 1px rgba(77,141,255,.55);
+}
+
+.videoTypeCard p,
+.videoTypeCard small {
+  grid-column: 2;
+  margin: 0;
+  color: var(--muted);
+}
+
+.typeIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #12213a;
+  color: #9fc4ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.searchInput {
+  width: min(380px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0a1322;
+  color: var(--ink);
+  padding: 11px 12px;
+}
+
+.compactEmpty {
+  min-height: 140px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #0b1424;
+}
+
 .brandPreview {
   min-height: 116px;
   border-radius: 8px;
@@ -692,6 +895,18 @@ button {
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
+  background: #0b1424;
+  color: var(--ink);
+}
+
+.brandManagerSection {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.brandManagerSection h3 {
+  margin: 0;
 }
 
 .brandPreview em {
@@ -741,7 +956,7 @@ button {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  background: #fbfdff;
+  background: #0a1322;
 }
 
 .musicOption.selected {
@@ -778,7 +993,7 @@ button {
   min-height: 132px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   display: grid;
   place-items: center;
   gap: 4px;
@@ -792,7 +1007,7 @@ button {
   height: 72px;
   object-fit: contain;
   border-radius: 6px;
-  background: #f7fbff;
+  background: #081120;
 }
 
 .assetThumb span,
@@ -808,6 +1023,171 @@ button {
   grid-template-columns: minmax(220px, 25%) minmax(380px, 45%) minmax(300px, 30%);
   gap: 16px;
   align-items: start;
+}
+
+.editorDark {
+  margin: -2px -2px 0;
+  border-radius: 10px;
+  padding: 18px;
+  color: #edf5ff;
+  background:
+    radial-gradient(circle at top left, rgba(24, 95, 220, .16), transparent 34%),
+    linear-gradient(145deg, #050913, #0b1220 58%, #07111f);
+  border: 1px solid rgba(125, 157, 205, .18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 24px 70px rgba(0,0,0,.18);
+}
+
+.editorDark .muted,
+.editorDark .panelTitle small,
+.editorDark .simpleStepCard small,
+.editorDark .previewControls span,
+.editorDark .annotationCard span,
+.editorDark .narrationInfo span,
+.editorDark .trimBox small {
+  color: #9fb0c8;
+}
+
+.editorDark .sectionHeader {
+  align-items: end;
+}
+
+.editorDark .storyboard,
+.editorDark .previewColumn,
+.editorDark .sceneProperties {
+  border: 1px solid rgba(125, 157, 205, .18);
+  border-radius: 10px;
+  background: rgba(8, 15, 28, .82);
+  padding: 14px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.editorDark .chapterName span {
+  color: #8fa3c2;
+}
+
+.editorDark .chapterName input,
+.editorDark .field input,
+.editorDark .field select,
+.editorDark .field textarea {
+  color: #f5f8ff;
+  border-color: rgba(125, 157, 205, .22);
+  background: #0d1727;
+}
+
+.editorDark .field span,
+.editorDark .field label {
+  color: #cfdbec;
+}
+
+.editorDark .simpleStepCard {
+  color: #edf5ff;
+  border-color: rgba(125, 157, 205, .18);
+  background: #0d1727;
+}
+
+.editorDark .simpleStepCard > span:first-child {
+  color: #9fc4ff;
+  background: rgba(37, 99, 235, .18);
+}
+
+.editorDark .simpleStepCard.selected {
+  border-color: #4d8dff;
+  background: linear-gradient(145deg, #10213b, #0d1727);
+  box-shadow: inset 0 0 0 1px rgba(77,141,255,.65), 0 14px 32px rgba(0,0,0,.28);
+}
+
+.editorDark .stepMenu {
+  border-color: rgba(125, 157, 205, .22);
+  background: #111d31;
+  box-shadow: 0 18px 44px rgba(0,0,0,.45);
+}
+
+.editorDark .stepMenu button {
+  color: #edf5ff;
+}
+
+.editorDark .stepMenu button:hover {
+  background: rgba(37, 99, 235, .22);
+}
+
+.editorDark .trainingPreview {
+  min-height: 500px;
+  border-color: rgba(125, 157, 205, .20);
+  background: #030712;
+}
+
+.editorDark .trainingPreview video {
+  background: #030712;
+}
+
+.editorDark .emptyState {
+  color: #c8d4e6;
+}
+
+.editorDark .uploadDropzone {
+  width: calc(100% - 36px);
+  min-height: 260px;
+  border: 1px dashed rgba(125, 157, 205, .38);
+  border-radius: 10px;
+  background: rgba(13, 23, 39, .72);
+}
+
+.editorDark .secondary {
+  color: #e7f0ff;
+  background: #14233a;
+}
+
+.editorDark .secondary:hover {
+  background: #1b3150;
+}
+
+.editorDark .editorSection {
+  border-color: rgba(125, 157, 205, .18);
+  background: #0d1727;
+}
+
+.editorDark .editorSection.expanded {
+  background: #0f1b2e;
+}
+
+.editorDark .editorSectionHeader {
+  color: #edf5ff;
+}
+
+.editorDark .toolGrid button,
+.editorDark .annotationCard,
+.editorDark .trimBox,
+.editorDark .narrationInfo {
+  color: #edf5ff;
+  border-color: rgba(125, 157, 205, .20);
+  background: #101c2f;
+}
+
+.editorDark .toolGrid button:hover {
+  color: #9fc4ff;
+  border-color: #4d8dff;
+  background: #132540;
+}
+
+.editorDark .segmented {
+  border-color: rgba(125, 157, 205, .22);
+}
+
+.editorDark .segmented button {
+  color: #dce8fa;
+  border-color: rgba(125, 157, 205, .20);
+  background: #101c2f;
+}
+
+.editorDark .segmented button.active {
+  color: #9fc4ff;
+  background: rgba(37, 99, 235, .20);
+}
+
+.editorDark .toggle {
+  color: #edf5ff;
+  border-color: rgba(125, 157, 205, .20);
+  background: #101c2f;
 }
 
 .panelTitle {
@@ -858,7 +1238,7 @@ button {
   min-height: 66px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   padding: 10px;
   text-align: left;
 }
@@ -869,8 +1249,8 @@ button {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: #eaf2ff;
-  color: var(--blue);
+  background: #12213a;
+  color: #82b2ff;
   font-weight: 900;
 }
 
@@ -900,8 +1280,8 @@ button {
   min-width: 132px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 16px 40px rgba(31, 55, 89, .14);
+  background: #111d31;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
   padding: 6px;
   display: none;
 }
@@ -920,7 +1300,7 @@ button {
 }
 
 .stepMenu button:hover {
-  background: #eef5ff;
+  background: #172a47;
 }
 
 .fullWidth {
@@ -931,7 +1311,7 @@ button {
   min-height: 460px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f5f9ff;
+  background: #030712;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -982,21 +1362,21 @@ button {
 .sceneProperties {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #0d1727;
   padding: 14px;
   display: grid;
   gap: 12px;
 }
 
 .editorSection {
-  border: 1px solid #e3edf8;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfdff;
+  background: #0d1727;
   overflow: hidden;
 }
 
 .editorSection.expanded {
-  background: #fff;
+  background: #0f1b2e;
 }
 
 .editorSectionHeader {
@@ -1026,7 +1406,7 @@ button {
   min-height: 74px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: #101c2f;
   display: grid;
   place-items: center;
   gap: 4px;
@@ -1049,10 +1429,10 @@ button {
 .annotationCard,
 .trimBox,
 .narrationInfo {
-  border: 1px solid #e3edf8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #f8fbff;
+  background: #101c2f;
 }
 
 .annotationCard span,
@@ -1072,7 +1452,7 @@ button {
 .segmented button {
   border: 0;
   border-right: 1px solid var(--line);
-  background: #fff;
+  background: #101c2f;
   padding: 10px;
   font-weight: 800;
 }
@@ -1082,8 +1462,8 @@ button {
 }
 
 .segmented button.active {
-  background: #eef5ff;
-  color: var(--blue);
+  background: #12213a;
+  color: #82b2ff;
 }
 
 .emptyState {
@@ -1119,7 +1499,146 @@ button {
   padding: 5px 9px;
   font-size: 12px;
   color: var(--muted);
-  background: #f8fbff;
+  background: #0d1727;
+}
+
+.autosaveHint {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(2, 6, 14, .72);
+  display: grid;
+  justify-items: end;
+  padding: 18px;
+}
+
+.brandModal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #081120;
+  color: var(--ink);
+  padding: 20px;
+  box-shadow: 0 30px 90px rgba(0,0,0,.55);
+  display: grid;
+  gap: 18px;
+}
+
+.modalHeader,
+.modalActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+
+.modalHeader h2 {
+  margin: 0;
+}
+
+.modalHeader p {
+  margin: 6px 0 0;
+}
+
+.modalSection {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1727;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.brandIdentityGrid {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.logoUploader {
+  min-height: 150px;
+  border: 1px dashed #3a5d91;
+  border-radius: 8px;
+  background: #0a1322;
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  padding: 12px;
+  color: #c9d8ee;
+  cursor: pointer;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.logoUploader > span:last-of-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.logoUploader input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.logoPreview {
+  width: 96px;
+  height: 76px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  background:
+    linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.08) 75%),
+    linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.08) 75%);
+  background-color: #101c2f;
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
+}
+
+.colorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.colorField > div {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.colorField input[type="color"] {
+  height: 43px;
+  padding: 3px;
+}
+
+.optionalPrefs {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1727;
+  padding: 14px;
+}
+
+.optionalPrefs summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.optionalPrefs .formGrid {
+  margin-top: 12px;
 }
 
 .formGrid.compact {
@@ -1178,7 +1697,9 @@ button {
   }
 
   .trainingEditor,
-  .formGrid.compact {
+  .formGrid.compact,
+  .brandIdentityGrid,
+  .colorGrid {
     grid-template-columns: 1fr;
   }
 

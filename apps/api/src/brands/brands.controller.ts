@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Query, Res, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
+import { existsSync } from "node:fs";
 import multer from "multer";
 import { tempRoot } from "../temp/temp-path.js";
 import { BrandsService } from "./brands.service.js";
@@ -43,15 +45,39 @@ export class BrandsController {
     return this.brands.archive(id);
   }
 
+  @Post(":id/restore")
+  restore(@Param("id") id: string) {
+    return this.brands.restore(id);
+  }
+
   @Post(":id/default")
   setDefault(@Param("id") id: string) {
     return this.brands.setDefault(id);
+  }
+
+  @Delete(":id")
+  remove(@Param("id") id: string) {
+    return this.brands.remove(id);
+  }
+
+  @Post(":id/reassign-and-delete")
+  reassignAndDelete(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.brands.reassignAndDelete(id, body);
   }
 
   @Post(":id/assets")
   @UseInterceptors(FileInterceptor("file", { storage: multer.diskStorage({ destination: tempRoot }) }))
   uploadAsset(@Param("id") id: string, @Query("type") type: string, @UploadedFile() file?: Express.Multer.File) {
     return this.brands.saveAsset(id, type, file);
+  }
+
+  @Get(":id/assets/:assetId/file")
+  async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
+    const asset = await this.brands.findAsset(id, assetId);
+    if (!asset || !existsSync(asset.path)) throw new NotFoundException("Brand asset file not found.");
+    response.setHeader("Content-Type", asset.mimeType);
+    response.setHeader("Cache-Control", "no-store");
+    return response.sendFile(asset.path);
   }
 
   @Get(":id/export")
