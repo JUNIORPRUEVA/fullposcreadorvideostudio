@@ -2,7 +2,7 @@
   "name": "fullpos-ad-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "MVP for generating professional software ad videos for FullPOS Cloud.",
+  "description": "Local multi-brand video studio for software ads, tutorials, courses, support, and brand content.",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -25,6 +25,9 @@
     "assets:e2e": "node scripts/create-e2e-assets.mjs",
     "e2e:local": "node scripts/local-e2e.mjs",
     "render:phase2": "node scripts/render-phase2-test.mjs",
+    "render:phase3-audio": "node scripts/render-phase3-audio-test.mjs",
+    "render:phase3c-audio": "node scripts/render-phase3c-dominican-audio.mjs",
+    "render:phase4-premium": "node scripts/render-phase4-premium.mjs",
     "servers:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-servers.ps1",
     "servers:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-local-servers.ps1"
   },

@@ -4,9 +4,24 @@ import { ProjectsService } from "../projects/projects.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RendersController } from "../renders/renders.controller.js";
 import { RenderService } from "../renders/render.service.js";
+import { AudioService } from "../audio/audio.service.js";
+import { AudioController } from "../audio/audio.controller.js";
+import { VoiceGenerationService } from "../audio/voice-generation.service.js";
+import { SettingsController } from "../settings/settings.controller.js";
+import { SettingsService } from "../settings/settings.service.js";
+import { AiVideoController } from "../ai-video/ai-video.controller.js";
+import { AiVideoService } from "../ai-video/ai-video.service.js";
+import { TemporaryTunnelAiAssetTransport } from "../ai-video/ai-asset-transport.js";
+import { AiAssetGatewayService } from "../ai-video/ai-asset-gateway.service.js";
+import { RunpodPublicVideoProvider } from "../ai-video/runpod-public-video.provider.js";
+import { R2SignedUrlAiAssetTransport } from "../ai-video/r2-signed-url-ai-asset-transport.js";
+import { CompositeAiAssetTransport } from "../ai-video/composite-ai-asset-transport.js";
+import { VideoStudioController } from "../video-studio/video-studio.controller.js";
+import { BrandsController } from "../brands/brands.controller.js";
+import { BrandsService } from "../brands/brands.service.js";
 
 @Module({
-  controllers: [ProjectsController, RendersController],
-  providers: [PrismaService, ProjectsService, RenderService]
+  controllers: [ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController],
+  providers: [PrismaService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService]
 })
 export class AppModule {}

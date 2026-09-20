@@ -1,0 +1,74 @@
+[
+  {
+    "id": "corporate-light",
+    "name": "Corporate Modern 01",
+    "category": "Corporate Modern",
+    "mood": "Corporativa · suave",
+    "filename": "corporate-light.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  },
+  {
+    "id": "modern-technology",
+    "name": "Technology 01",
+    "category": "Technology",
+    "mood": "Tecnológica · moderna",
+    "filename": "modern-technology.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  },
+  {
+    "id": "upbeat-business",
+    "name": "Energetic Business 01",
+    "category": "Energetic",
+    "mood": "Comercial · energética",
+    "filename": "upbeat-business.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  },
+  {
+    "id": "soft-ambient",
+    "name": "Elegant Ambient 01",
+    "category": "Elegant Ambient",
+    "mood": "Elegante · tranquila",
+    "filename": "soft-ambient.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  },
+  {
+    "id": "minimal-electronic",
+    "name": "Minimal Electronic 01",
+    "category": "Minimal Electronic",
+    "mood": "Tecnológica · minimal",
+    "filename": "minimal-electronic.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  },
+  {
+    "id": "inspiring-saas",
+    "name": "SaaS Premium 01",
+    "category": "SaaS Premium",
+    "mood": "Tecnológica · elegante",
+    "filename": "inspiring-saas.wav",
+    "duration": 30,
+    "license": "Propia / generada localmente para Video Studio",
+    "source": "scripts/create-music-library.mjs",
+    "commercialUse": true,
+    "quality": "DEMO"
+  }
+]

@@ -11,4 +11,4 @@ app.enableCors({
 });
 
 await app.listen(port);
-console.log(`FullPOS Ad Studio API listening on http://localhost:${port}`);
+console.log(`Video Studio API listening on http://localhost:${port}`);

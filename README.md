@@ -1,12 +1,15 @@
-# FullPOS Ad Studio
+# FullPOS Video Studio
 
-FullPOS Ad Studio is a TypeScript monorepo MVP for creating deterministic, professional software advertising videos. The first brand/template targets FullPOS Cloud and the architecture is prepared for Appyra, client products, and future templates.
+FullPOS Video Studio is a TypeScript monorepo for creating deterministic, professional software videos for advertising, training, tutorials, onboarding, support, product updates, brand content, and free-form videos.
+
+The repository/folder name has not been renamed yet. Existing advertisement flows remain supported, but the product direction is now a general video production system.
 
 ## Stack
 
 - Next.js, React, TypeScript, App Router
 - NestJS, Prisma, SQLite
 - Remotion and FFmpeg for video rendering
+- General video types, storyboard scenes, screen recordings, voice, music, R2, RunPod, and hybrid AI backgrounds
 - npm workspaces
 
 ## Quick Start
@@ -18,7 +21,11 @@ npm run build
 npm run render:demo
 ```
 
-The demo render is written to `storage/renders/demo-fullpos-premium-vertical/final.mp4`.
+Local previews include:
+
+- Quick Tutorial: `storage/renders/quick-tutorial-preview/final.mp4`
+- Professional Course scene: `storage/renders/professional-course-scene-preview/final.mp4`
+- Hybrid AI mobile: `storage/renders/hybrid-mobile-preview/final.mp4`
 
 ## Safety
 

@@ -9,6 +9,7 @@ export interface RenderOptions {
   renderId: string;
   outputRoot: string;
   onProgress?: (progress: number) => void;
+  compositionId?: "FullPOSPremiumVertical" | "HybridMobilePreview" | "QuickTutorialPreview" | "ProfessionalCoursePreview";
 }
 
 export async function renderFullPosVideo(payload: RenderPayload, options: RenderOptions): Promise<string> {
@@ -26,14 +27,20 @@ export async function renderFullPosVideo(payload: RenderPayload, options: Render
     inputProps: { payload: hydratedPayload },
     browserExecutable
   });
-  const composition = compositions.find((item) => item.id === "FullPOSPremiumVertical");
+  const compositionId = options.compositionId ?? "FullPOSPremiumVertical";
+  const composition = compositions.find((item) => item.id === compositionId);
 
   if (!composition) {
-    throw new Error("Remotion composition FullPOSPremiumVertical was not found.");
+    throw new Error(`Remotion composition ${compositionId} was not found.`);
   }
 
+  const renderComposition = {
+    ...composition,
+    durationInFrames: Math.max(composition.durationInFrames, Math.round((hydratedPayload.durationSeconds || 25) * (hydratedPayload.fps || composition.fps)))
+  };
+
   await renderMedia({
-    composition,
+    composition: renderComposition,
     serveUrl: bundled,
     codec: "h264",
     outputLocation,
@@ -51,6 +58,60 @@ export async function renderFullPosVideo(payload: RenderPayload, options: Render
   return outputLocation;
 }
 
+export function renderHybridMobilePreview(payload: RenderPayload, options: Omit<RenderOptions, "compositionId">): Promise<string> {
+  return renderFullPosVideo(
+    {
+      ...payload,
+      durationSeconds: 5,
+      fps: 30,
+      audio: { ...payload.audio, voiceoverEnabled: false, musicEnabled: false },
+      visual: {
+        ...payload.visual,
+        aiSceneMode: "hybrid",
+        aiMotionIntensity: normalizeMotion(payload.visual?.aiMotionIntensity ?? payload.visual?.motion)
+      }
+    },
+    { ...options, compositionId: "HybridMobilePreview" }
+  );
+}
+
+export function renderQuickTutorialPreview(payload: RenderPayload, options: Omit<RenderOptions, "compositionId">): Promise<string> {
+  return renderFullPosVideo(
+    {
+      ...payload,
+      videoType: "QUICK_TUTORIAL",
+      template: "quick-tutorial",
+      format: payload.format ?? "9:16",
+      durationSeconds: payload.durationSeconds || 20,
+      subtitleMode: payload.subtitleMode ?? "AUTO_FROM_NARRATION",
+      narrationStyle: payload.narrationStyle ?? "QUICK_TUTORIAL",
+      audio: { ...payload.audio, voiceoverEnabled: false, musicEnabled: false }
+    },
+    { ...options, compositionId: "QuickTutorialPreview" }
+  );
+}
+
+export function renderProfessionalCoursePreview(payload: RenderPayload, options: Omit<RenderOptions, "compositionId">): Promise<string> {
+  return renderFullPosVideo(
+    {
+      ...payload,
+      videoType: "COURSE",
+      template: "professional-course",
+      format: "16:9",
+      durationSeconds: payload.durationSeconds || 18,
+      subtitleMode: payload.subtitleMode ?? "AUTO_FROM_NARRATION",
+      narrationStyle: payload.narrationStyle ?? "TRAINING",
+      audio: { ...payload.audio, voiceoverEnabled: false, musicEnabled: false }
+    },
+    { ...options, compositionId: "ProfessionalCoursePreview" }
+  );
+}
+
+function normalizeMotion(value?: string): "elegant" | "cinematic" | "dynamic" {
+  if (value === "elegant" || value === "dynamic") return value;
+  return "cinematic";
+}
+
 async function hydrateAssetSources(payload: RenderPayload): Promise<RenderPayload> {
   const assets = { ...payload.assets };
   for (const [key, value] of Object.entries(assets)) {
@@ -62,7 +123,39 @@ async function hydrateAssetSources(payload: RenderPayload): Promise<RenderPayloa
     const data = await readFile(absolute);
     assets[key as keyof typeof assets] = `data:${mimeForPath(absolute)};base64,${data.toString("base64")}`;
   }
-  return { ...payload, assets };
+  const audio = payload.audio ? { ...payload.audio } : undefined;
+  if (audio) {
+    for (const key of ["voiceOverPath", "musicPath"] as const) {
+      const value = audio[key];
+      if (!value || value.startsWith("data:") || value.startsWith("http:") || value.startsWith("https:")) {
+        continue;
+      }
+      const absolute = path.resolve(value);
+      if (!existsSync(absolute)) {
+        audio[key] = undefined;
+        continue;
+      }
+      const data = await readFile(absolute);
+      audio[key] = `data:${audioMimeForPath(absolute)};base64,${data.toString("base64")}`;
+    }
+  }
+  const visual = payload.visual ? { ...payload.visual } : undefined;
+  if (visual) {
+    for (const key of ["aiBackgroundVideoPath", "aiBackgroundImagePath"] as const) {
+      const value = visual[key];
+      if (!value || value.startsWith("data:") || value.startsWith("http:") || value.startsWith("https:")) {
+        continue;
+      }
+      const absolute = path.resolve(value);
+      if (!existsSync(absolute)) {
+        visual[key] = undefined;
+        continue;
+      }
+      const data = await readFile(absolute);
+      visual[key] = `data:${key === "aiBackgroundVideoPath" ? videoMimeForPath(absolute) : mimeForPath(absolute)};base64,${data.toString("base64")}`;
+    }
+  }
+  return { ...payload, assets, audio, visual };
 }
 
 function mimeForPath(filePath: string) {
@@ -70,6 +163,20 @@ function mimeForPath(filePath: string) {
   if (extension === ".png") return "image/png";
   if (extension === ".webp") return "image/webp";
   return "image/jpeg";
+}
+
+function audioMimeForPath(filePath: string) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".mp3") return "audio/mpeg";
+  if (extension === ".m4a") return "audio/mp4";
+  if (extension === ".ogg") return "audio/ogg";
+  return "audio/wav";
+}
+
+function videoMimeForPath(filePath: string) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".webm") return "video/webm";
+  return "video/mp4";
 }
 
 function findLocalChromeHeadlessShell() {

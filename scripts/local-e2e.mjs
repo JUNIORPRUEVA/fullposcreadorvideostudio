@@ -26,7 +26,14 @@ const project = await json(`${apiUrl}/projects`, {
     price: "Desde RD$1,000/mes",
     website: "fullposcloud.fulltechrd.com",
     template: "fullpos-premium-vertical",
-    format: "9:16"
+    format: "9:16",
+    voiceoverEnabled: true,
+    voiceoverScript: "FullPOS Cloud te ayuda a facturar, controlar inventario y ver reportes desde una sola plataforma.",
+    voiceName: "female-es",
+    voiceSpeed: 1,
+    voiceVolume: 1,
+    musicEnabled: true,
+    musicVolume: 0.2
   })
 });
 

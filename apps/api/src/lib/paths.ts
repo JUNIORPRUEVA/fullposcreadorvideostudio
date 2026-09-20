@@ -4,6 +4,8 @@ export const projectRoot = path.resolve(import.meta.dirname, "../../../..");
 export const storageRoot = path.join(projectRoot, "storage");
 export const uploadsRoot = path.join(storageRoot, "uploads");
 export const rendersRoot = path.join(storageRoot, "renders");
+export const audioRoot = path.join(storageRoot, "audio");
+export const aiVideoRoot = path.join(storageRoot, "ai-video");
 
 export function assertInside(base: string, target: string) {
   const relative = path.relative(path.resolve(base), path.resolve(target));

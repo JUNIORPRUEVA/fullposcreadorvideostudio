@@ -6,6 +6,8 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "asset-gateway:dev": "tsx src/ai-video/asset-gateway-server.ts",
+    "asset-gateway": "node dist/ai-video/asset-gateway-server.js",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,6 +18,8 @@
     "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1136.0",
+    "@aws-sdk/s3-request-presigner": "^3.1136.0",
     "@fullpos-ad-studio/shared": "file:../../packages/shared",
     "@fullpos-ad-studio/video": "file:../../packages/video",
     "@nestjs/common": "^11.0.0",

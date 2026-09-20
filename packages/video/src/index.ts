@@ -1,2 +1,2 @@
-export { renderFullPosVideo } from "./render.js";
+export { renderFullPosVideo, renderHybridMobilePreview, renderProfessionalCoursePreview, renderQuickTutorialPreview } from "./render.js";
 export { defaultRenderPayload } from "./payload.js";

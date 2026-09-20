@@ -1,6 +1,6 @@
 # Architecture
 
-FullPOS Ad Studio is a simple npm-workspaces monorepo:
+Video Studio is a simple npm-workspaces monorepo:
 
 - `apps/web`: Next.js App Router interface.
 - `apps/api`: NestJS API, Prisma, SQLite, upload handling, render jobs.

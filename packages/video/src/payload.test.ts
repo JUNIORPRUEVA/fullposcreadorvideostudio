@@ -7,4 +7,8 @@ test("demo payload matches first template requirements", () => {
   assert.equal(defaultRenderPayload.format, "9:16");
   assert.equal(defaultRenderPayload.fps, 30);
   assert.equal(defaultRenderPayload.durationSeconds, 25);
+  assert.equal(defaultRenderPayload.audio?.musicEnabled, true);
+  assert.equal(defaultRenderPayload.audio?.voiceoverEnabled, true);
+  assert.equal(defaultRenderPayload.audio?.voiceSpeed, 1);
+  assert.equal(defaultRenderPayload.scenes?.billing?.fit, "cover");
 });
