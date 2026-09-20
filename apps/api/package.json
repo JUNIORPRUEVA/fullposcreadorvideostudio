@@ -1,0 +1,35 @@
+{
+  "name": "@fullpos-ad-studio/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/**/*.test.js",
+    "prisma:validate": "prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@fullpos-ad-studio/shared": "file:../../packages/shared",
+    "@fullpos-ad-studio/video": "file:../../packages/video",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.0.0",
+    "multer": "^2.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "prisma": "^6.0.0",
+    "tsx": "^4.20.0"
+  }
+}

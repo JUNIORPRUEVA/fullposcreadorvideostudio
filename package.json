@@ -1,0 +1,35 @@
+{
+  "name": "fullpos-ad-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP for generating professional software ad videos for FullPOS Cloud.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @fullpos-ad-studio/api & npm run dev --workspace @fullpos-ad-studio/web",
+    "build": "npm run build --workspace @fullpos-ad-studio/shared && npm run build --workspace @fullpos-ad-studio/video && npm run build --workspace @fullpos-ad-studio/api && npm run build --workspace @fullpos-ad-studio/web",
+    "build:web": "npm run build --workspace @fullpos-ad-studio/web",
+    "build:api": "npm run build --workspace @fullpos-ad-studio/api",
+    "build:video": "npm run build --workspace @fullpos-ad-studio/video",
+    "typecheck": "npm run typecheck --workspace @fullpos-ad-studio/shared && npm run typecheck --workspace @fullpos-ad-studio/video && npm run typecheck --workspace @fullpos-ad-studio/api && npm run typecheck --workspace @fullpos-ad-studio/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run build --workspace @fullpos-ad-studio/shared && npm run build --workspace @fullpos-ad-studio/video && npm run build --workspace @fullpos-ad-studio/api && npm run test --workspaces --if-present",
+    "prisma:validate": "npm run prisma:validate --workspace @fullpos-ad-studio/api",
+    "prisma:generate": "npm run prisma:generate --workspace @fullpos-ad-studio/api",
+    "db:init": "node scripts/init-sqlite.mjs",
+    "db:push": "node scripts/prisma-db-push.mjs",
+    "render:demo": "npm run render:demo --workspace @fullpos-ad-studio/video",
+    "validate:video": "node scripts/validate-video.mjs",
+    "assets:e2e": "node scripts/create-e2e-assets.mjs",
+    "e2e:local": "node scripts/local-e2e.mjs",
+    "render:phase2": "node scripts/render-phase2-test.mjs",
+    "servers:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-servers.ps1",
+    "servers:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-local-servers.ps1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
