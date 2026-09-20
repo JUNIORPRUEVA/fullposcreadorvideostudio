@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Asset } from "@prisma/client";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -13,6 +13,7 @@ import { readR2Config, type R2Config } from "./r2-env.js";
 export const R2_SIGNED_URL_TTL_SECONDS = 10 * 60;
 const MAX_R2_INPUT_BYTES = 12 * 1024 * 1024;
 const allowedMimeTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const R2_CONFIG_READER = "R2_CONFIG_READER";
 
 export interface R2UploadResult {
   objectKey: string;
@@ -26,7 +27,11 @@ export interface R2UploadResult {
 
 @Injectable()
 export class R2SignedUrlAiAssetTransport implements AiAssetTransport {
-  constructor(private readonly configReader = readR2Config) {}
+  private readonly configReader: typeof readR2Config;
+
+  constructor(@Optional() @Inject(R2_CONFIG_READER) configReader?: typeof readR2Config) {
+    this.configReader = configReader ?? readR2Config;
+  }
 
   isConfigured() {
     return Boolean(this.configReader());
