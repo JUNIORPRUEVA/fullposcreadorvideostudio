@@ -153,7 +153,7 @@ type Project = {
   visualStyle: string;
   motionIntensity: string;
   createdAt: string;
-  assets: Array<{ id: string; type: string; filename: string; path: string; mimeType?: string; durationSeconds?: number }>;
+  assets: Array<ProjectAsset>;
   renderJobs: RenderJob[];
   aiVideoJobs?: AiVideoJob[];
   scenes?: StoryScene[];
@@ -193,6 +193,8 @@ type BrandProfile = {
   projects?: Array<{ id: string; name: string; videoType: VideoType }>;
 };
 
+type ProjectAsset = { id: string; type: string; filename: string; path: string; mimeType?: string; durationSeconds?: number };
+
 type BrandAsset = {
   id: string;
   type: string;
@@ -228,7 +230,7 @@ type StoryScene = {
   narrationScript?: string;
   voiceProfile?: string;
   narrationStyle?: Draft["narrationStyle"];
-  mediaAssetId?: string;
+  mediaAssetId?: string | null;
   trimStartSeconds?: number;
   trimEndSeconds?: number;
   sourceAudioEnabled?: boolean;
@@ -745,6 +747,7 @@ export default function Home() {
       const chapter = insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
       const createdIds: string[] = [];
       for (const [index, file] of validFiles.entries()) {
+        show("info", `Subiendo ${index + 1} de ${validFiles.length}: ${file.name}`);
         const isVideo = file.type === "video/mp4" || file.type === "video/webm";
         const type: AssetType = isVideo ? "screen_recording" : "image";
         const asset = await uploadProjectAsset(id, type, file);
@@ -762,6 +765,7 @@ export default function Home() {
             narrationScript: ""
           })
         });
+        if (scene.mediaAssetId !== asset.id) throw new Error(`No se pudo asociar ${file.name} al paso creado.`);
         createdIds.push(scene.id);
       }
       const nextOrder = [
@@ -774,12 +778,68 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: nextOrder })
       });
+      const verified = await fetchJson<Project>(`${API_URL}/projects/${id}`);
+      const orphan = createdIds
+        .map((sceneId) => verified.scenes?.find((scene) => scene.id === sceneId))
+        .find((scene) => !scene?.mediaAssetId);
+      if (orphan) throw new Error(`El paso "${orphan.title}" se guardó sin medio. No se marcará como cargado.`);
       await refreshAll();
       show("success", `${validFiles.length} archivo${validFiles.length === 1 ? "" : "s"} agregado${validFiles.length === 1 ? "" : "s"} · ${createdIds.length} paso${createdIds.length === 1 ? "" : "s"} creado${createdIds.length === 1 ? "" : "s"}`);
       return createdIds;
     } catch (error) {
       show("error", getErrorMessage(error));
       return [];
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function assignMediaToScene(sceneId: string, files?: FileList | File[]) {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return false;
+    if (selectedFiles.length > 1) {
+      show("info", "Para reemplazar el medio de un paso, selecciona un solo archivo.");
+      return false;
+    }
+    const file = selectedFiles[0];
+    const isVideo = file.type === "video/mp4" || file.type === "video/webm";
+    const isImage = imageMimeTypes.includes(file.type);
+    if (!isVideo && !isImage) {
+      show("error", "Usa imágenes PNG, JPG, WEBP o videos MP4/WEBM.");
+      return false;
+    }
+    const maxSize = isVideo ? 250 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      show("error", `${file.name} supera ${Math.round(maxSize / 1024 / 1024)}MB.`);
+      return false;
+    }
+    try {
+      setBusy(`scene-media-${sceneId}`);
+      const id = await ensureProject();
+      show("info", `Subiendo 1 de 1: ${file.name}`);
+      const assetType: AssetType = isVideo ? "screen_recording" : "image";
+      const asset = await uploadProjectAsset(id, assetType, file);
+      const updated = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes/${sceneId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaAssetId: asset.id,
+          type: isVideo ? "SCREEN_RECORDING" : "IMAGE",
+          duration: isVideo ? Math.min(Math.max(Math.round(asset.durationSeconds ?? 6), 3), 18) : undefined,
+          durationMode: "AUTO"
+        })
+      });
+      if (updated.mediaAssetId !== asset.id) throw new Error(`No se pudo asociar ${file.name} al paso actual.`);
+      const verified = await fetchJson<Project>(`${API_URL}/projects/${id}`);
+      const savedScene = verified.scenes?.find((scene) => scene.id === sceneId);
+      const savedAsset = verified.assets.find((item) => item.id === asset.id);
+      if (savedScene?.mediaAssetId !== asset.id || !savedAsset) throw new Error(`La asociación de ${file.name} no quedó persistida.`);
+      await refreshAll();
+      show("success", `${file.name} cargado y asociado al paso.`);
+      return true;
+    } catch (error) {
+      show("error", getErrorMessage(error));
+      return false;
     } finally {
       setBusy(null);
     }
@@ -1645,7 +1705,7 @@ export default function Home() {
                 />
               )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
               {step === 4 && (
                 <>
                   <FormatStep draft={draft} setDraft={setDraft} busy={busy} stylePreviewUrl={stylePreviewUrl} onPreviewStyle={previewStyle} />
@@ -1992,6 +2052,7 @@ function StoryboardStep({
   onPreviewChapter,
   onPreviewFull,
   onUploadSceneMedia,
+  onAssignSceneMedia,
   onCreateStepsFromLibrary
 }: {
   project?: Project;
@@ -2006,6 +2067,7 @@ function StoryboardStep({
   onPreviewChapter: (chapter: string) => void;
   onPreviewFull: () => void;
   onUploadSceneMedia: (insertAfterSceneId: string | undefined, files?: FileList | File[]) => Promise<string[]>;
+  onAssignSceneMedia: (sceneId: string, files?: FileList | File[]) => Promise<boolean>;
   onCreateStepsFromLibrary: (insertAfterSceneId?: string) => Promise<string[]>;
 }) {
   const scenes = [...(project?.scenes ?? [])].sort((a, b) => a.order - b.order);
@@ -2029,6 +2091,14 @@ function StoryboardStep({
   async function addMediaFiles(files?: FileList | File[]) {
     const createdIds = await onUploadSceneMedia(selected?.id, files);
     if (createdIds[0]) setSelectedId(createdIds[0]);
+  }
+  async function replaceSelectedMedia(files?: FileList | File[]) {
+    if (!selected) {
+      await addMediaFiles(files);
+      return;
+    }
+    const updated = await onAssignSceneMedia(selected.id, files);
+    if (updated) setSelectedId(selected.id);
   }
   async function chooseFromLibrary() {
     const createdIds = await onCreateStepsFromLibrary(selected?.id);
@@ -2164,10 +2234,10 @@ function StoryboardStep({
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
-              void addMediaFiles(event.dataTransfer.files);
+              void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl ? (isVideoMedia ? <video controls src={mediaUrl} /> : <img src={mediaUrl} alt="" />) : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>Agrega capturas o grabaciones para comenzar.</p><small>Arrastra varios archivos aquí o selecciónalos de una vez.</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Subir archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl ? (isVideoMedia ? <video controls src={mediaUrl} /> : <img src={mediaUrl} alt="" />) : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}><Play size={16} />Ver paso</button>
@@ -2177,13 +2247,13 @@ function StoryboardStep({
         </div>
         {selected ? (
           <div className="sceneProperties">
-            <div className="panelTitle"><strong>Editar paso</strong><small>{busy === `scene-update-${selected.id}` || busy === `scene-media-${selected.id}` ? "Guardando..." : "Guardado ✓"}</small></div>
+            <div className="panelTitle"><strong>Editar paso</strong><small>{busy === `scene-update-${selected.id}` || busy === `scene-media-${selected.id}` ? "Guardando..." : selected.mediaAssetId ? "Guardado ✓" : "Sin medio asociado"}</small></div>
             <EditorSection id="content" label="Contenido" open={openSection} setOpen={setOpenSection}>
               <Field label="Título del paso" value={selected.title} onChange={(title) => patchSelected({ title })} />
               {isCourse ? <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} /> : null}
-              <label className="field"><span>Medio</span><select value={selected.mediaAssetId ?? ""} onChange={(event) => patchSelected({ mediaAssetId: event.target.value || undefined, type: assetSceneType(project?.assets.find((asset) => asset.id === event.target.value)) })}><option value="">Sin medio</option>{(project?.assets ?? []).map((asset) => <option key={asset.id} value={asset.id}>{asset.filename}</option>)}</select></label>
-              <label className="field fileButton secondary"><Upload size={16} />Agregar archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label>
-              <small className="muted">Puedes elegir muchos archivos; se creará un paso por cada uno.</small>
+              <label className="field"><span>Medio</span><select value={selected.mediaAssetId ?? ""} onChange={(event) => patchSelected({ mediaAssetId: event.target.value || null, type: assetSceneType(project?.assets.find((asset) => asset.id === event.target.value)) })}><option value="">Sin medio</option>{(project?.assets ?? []).map((asset) => <option key={asset.id} value={asset.id}>{asset.filename}</option>)}</select></label>
+              <label className="field fileButton secondary"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label>
+              <small className="muted">Este control reemplaza el medio del paso actual. Usa "Subir archivos" en el panel inicial para crear muchos pasos.</small>
               <label className="field"><span>Duración</span><input type="number" min="1" step="0.5" value={selected.duration} onChange={(event) => patchSelected({ duration: Number(event.target.value) })} /></label>
               {isVideoMedia ? <div className="trimBox"><strong>Recortar video</strong><div className="formGrid compact"><label className="field"><span>Inicio</span><input type="number" min="0" step="0.1" value={selected.trimStartSeconds ?? 0} onChange={(event) => patchSelected({ trimStartSeconds: Number(event.target.value) })} /></label><label className="field"><span>Fin</span><input type="number" min="0" step="0.1" value={selected.trimEndSeconds ?? selectedAsset?.durationSeconds ?? selected.duration} onChange={(event) => patchSelected({ trimEndSeconds: Number(event.target.value) })} /></label></div><small>Seleccionado: {formatSeconds(selectedDuration)}</small><button className="secondary" type="button" onClick={() => onPreviewScene(selected.id)}><Play size={14} />Reproducir selección</button></div> : null}
             </EditorSection>
@@ -2955,42 +3025,68 @@ async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
 }
 
 async function uploadProjectAsset(projectId: string, type: AssetType, file: File) {
-  const intent = await fetchJson<UploadIntent>(`${API_URL}/projects/${projectId}/assets/upload-intent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
-  });
-  const upload = await fetch(intent.signedUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file
-  });
-  if (!upload.ok) throw new Error("No se pudo cargar el archivo en almacenamiento.");
-  const checksum = await sha256BrowserFile(file);
-  return fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${projectId}/assets/complete-upload`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
-  });
+  try {
+    const intent = await fetchJson<UploadIntent>(`${API_URL}/projects/${projectId}/assets/upload-intent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
+    });
+    const upload = await fetch(intent.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file
+    });
+    if (!upload.ok) throw new Error("No se pudo cargar el archivo en almacenamiento.");
+    const checksum = await sha256BrowserFile(file);
+    return await fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${projectId}/assets/complete-upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
+    });
+  } catch {
+    return uploadProjectAssetViaApi(projectId, type, file);
+  }
 }
 
 async function uploadBrandAsset(brandId: string, type: string, file: File) {
-  const intent = await fetchJson<UploadIntent>(`${API_URL}/brands/${brandId}/assets/upload-intent`, {
+  try {
+    const intent = await fetchJson<UploadIntent>(`${API_URL}/brands/${brandId}/assets/upload-intent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
+    });
+    const upload = await fetch(intent.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file
+    });
+    if (!upload.ok) throw new Error("No se pudo cargar el logo en almacenamiento.");
+    const checksum = await sha256BrowserFile(file);
+    return await fetchJson<BrandAsset>(`${API_URL}/brands/${brandId}/assets/complete-upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
+    });
+  } catch {
+    return uploadBrandAssetViaApi(brandId, type, file);
+  }
+}
+
+async function uploadProjectAssetViaApi(projectId: string, type: AssetType, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${projectId}/assets?type=${encodeURIComponent(type)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
+    body: form
   });
-  const upload = await fetch(intent.signedUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file
-  });
-  if (!upload.ok) throw new Error("No se pudo cargar el logo en almacenamiento.");
-  const checksum = await sha256BrowserFile(file);
-  return fetchJson<BrandAsset>(`${API_URL}/brands/${brandId}/assets/complete-upload`, {
+}
+
+async function uploadBrandAssetViaApi(brandId: string, type: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return fetchJson<BrandAsset>(`${API_URL}/brands/${brandId}/assets?type=${encodeURIComponent(type)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
+    body: form
   });
 }
 

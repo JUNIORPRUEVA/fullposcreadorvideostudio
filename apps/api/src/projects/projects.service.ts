@@ -300,6 +300,7 @@ export class ProjectsService {
   async updateScene(projectId: string, sceneId: string, body: Record<string, unknown>) {
     const project = await this.findOne(projectId);
     validateSceneTrim(project.assets, body);
+    await this.assertSceneMediaBelongsToProject(projectId, body);
     return this.prisma.videoScene.update({
       where: { id: sceneId },
       data: sceneData(body)
@@ -358,12 +359,21 @@ export class ProjectsService {
   private async upsertScene(projectId: string, body: Record<string, unknown>) {
     const project = await this.findOne(projectId);
     validateSceneTrim(project.assets, body);
+    await this.assertSceneMediaBelongsToProject(projectId, body);
     return this.prisma.videoScene.create({
       data: {
         projectId,
         ...sceneData(body)
       }
     });
+  }
+
+  private async assertSceneMediaBelongsToProject(projectId: string, body: Record<string, unknown>) {
+    if (!("mediaAssetId" in body)) return;
+    if (body.mediaAssetId === undefined || body.mediaAssetId === null || body.mediaAssetId === "") return;
+    if (typeof body.mediaAssetId !== "string") throw new BadRequestException("mediaAssetId must be a string.");
+    const asset = await this.prisma.asset.findFirst({ where: { id: body.mediaAssetId, projectId }, select: { id: true } });
+    if (!asset) throw new BadRequestException("Selected media does not exist in this project.");
   }
 
   async saveMusic(projectId: string, file?: Express.Multer.File) {
@@ -487,7 +497,7 @@ function sceneData(body: Record<string, unknown>) {
     voiceProfile: typeof body.voiceProfile === "string" ? body.voiceProfile : undefined,
     narrationStyle: typeof body.narrationStyle === "string" ? body.narrationStyle : undefined,
     assetRefs: Array.isArray(body.assetRefs) ? JSON.stringify(body.assetRefs) : typeof body.assetRefs === "string" ? body.assetRefs : undefined,
-    mediaAssetId: typeof body.mediaAssetId === "string" ? body.mediaAssetId : undefined,
+    mediaAssetId: body.mediaAssetId === null || body.mediaAssetId === "" ? null : typeof body.mediaAssetId === "string" ? body.mediaAssetId : undefined,
     trimStartSeconds: typeof body.trimStartSeconds === "number" ? body.trimStartSeconds : undefined,
     trimEndSeconds: typeof body.trimEndSeconds === "number" ? body.trimEndSeconds : undefined,
     sourceAudioEnabled: typeof body.sourceAudioEnabled === "boolean" ? body.sourceAudioEnabled : undefined,
