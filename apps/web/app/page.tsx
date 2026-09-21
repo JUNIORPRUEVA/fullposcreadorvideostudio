@@ -197,6 +197,9 @@ type BrandProfile = {
 type TrainingPreviewState = {
   status: "idle" | "loading" | "ready" | "error";
   message: string;
+  mode?: "scene" | "chapter" | "full";
+  sceneId?: string;
+  chapter?: string;
 };
 
 type ProjectAsset = { id: string; type: string; filename: string; path: string; mimeType?: string; durationSeconds?: number };
@@ -1495,7 +1498,7 @@ export default function Home() {
     try {
       setBusy(previewBusyKey);
       setTrainingPreviewUrl("");
-      setTrainingPreviewState({ status: "loading", message: loadingMessage });
+      setTrainingPreviewState({ status: "loading", message: loadingMessage, mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
       const endpoint = draft.videoType === "COURSE" || draft.format === "16:9" ? "course-scene-preview" : "quick-tutorial-preview";
       const preview = await fetchJson<{ streamUrl: string }>(`${API_URL}/renders/${endpoint}`, {
         method: "POST",
@@ -1503,12 +1506,12 @@ export default function Home() {
         body: JSON.stringify({ projectId, sceneId, chapter })
       });
       setTrainingPreviewUrl(`${API_URL}${preview.streamUrl}`);
-      setTrainingPreviewState({ status: "ready", message: sceneId ? "Vista previa del paso lista." : chapter ? "Vista previa del capítulo lista." : "Vista previa completa lista." });
+      setTrainingPreviewState({ status: "ready", message: sceneId ? "Vista previa del paso lista." : chapter ? "Vista previa del capítulo lista." : "Vista previa completa lista.", mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
       show("success", sceneId ? "Vista previa de escena generada." : chapter ? "Vista previa de capítulo generada." : "Vista previa completa generada.");
     } catch (error) {
       const message = getErrorMessage(error);
       setTrainingPreviewUrl("");
-      setTrainingPreviewState({ status: "error", message });
+      setTrainingPreviewState({ status: "error", message, mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
       show("error", `No se pudo generar la vista previa: ${message}`);
     } finally {
       setBusy(null);
@@ -1801,7 +1804,7 @@ export default function Home() {
                 />
               )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} previewState={trainingPreviewState} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} previewState={trainingPreviewState} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onClearPreview={() => { setTrainingPreviewUrl(""); setTrainingPreviewState({ status: "idle", message: "" }); }} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
               {step === 4 && (
                 <AudioStep
                   draft={draft}
@@ -2223,6 +2226,7 @@ function StoryboardStep({
   onPreviewScene,
   onPreviewChapter,
   onPreviewFull,
+  onClearPreview,
   onUploadSceneMedia,
   onAssignSceneMedia,
   onCreateStepsFromLibrary
@@ -2239,6 +2243,7 @@ function StoryboardStep({
   onPreviewScene: (sceneId: string) => void;
   onPreviewChapter: (chapter: string) => void;
   onPreviewFull: () => void;
+  onClearPreview: () => void;
   onUploadSceneMedia: (insertAfterSceneId: string | undefined, files?: FileList | File[]) => Promise<string[]>;
   onAssignSceneMedia: (sceneId: string, files?: FileList | File[]) => Promise<boolean>;
   onCreateStepsFromLibrary: (insertAfterSceneId?: string) => Promise<string[]>;
@@ -2261,6 +2266,11 @@ function StoryboardStep({
   const isCourse = project?.videoType === "COURSE";
   const hasScenes = scenes.length > 0;
   const selectedChapterBusy = selected?.chapter ? busy === `chapter-preview-${selected.chapter}` : false;
+  const retryPreview = () => {
+    if (previewState.mode === "chapter" && previewState.chapter) return onPreviewChapter(previewState.chapter);
+    if (previewState.mode === "full") return onPreviewFull();
+    if (selected) return onPreviewScene(previewState.sceneId ?? selected.id);
+  };
   useEffect(() => {
     setPreviewPlaybackError("");
   }, [previewUrl]);
@@ -2428,7 +2438,7 @@ function StoryboardStep({
               void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} /> : activeLocalPreview ? activeLocalPreview.isVideo ? <video controls src={activeLocalPreview.url} /> : <img src={activeLocalPreview.url} alt={activeLocalPreview.filename} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} onRetry={retryPreview} onDismiss={onClearPreview} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} onRetry={retryPreview} onDismiss={() => setPreviewPlaybackError("")} /> : activeLocalPreview ? activeLocalPreview.isVideo ? <video controls src={activeLocalPreview.url} /> : <img src={activeLocalPreview.url} alt={activeLocalPreview.filename} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}>{busy === `scene-preview-${selected?.id}` ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{busy === `scene-preview-${selected?.id}` ? "Generando..." : "Ver paso"}</button>
@@ -2566,13 +2576,19 @@ function assetSceneType(asset?: Project["assets"][number]) {
   return asset.mimeType?.startsWith("video/") ? "SCREEN_RECORDING" : "IMAGE";
 }
 
-function PreviewStatus({ state }: { state: TrainingPreviewState }) {
+function PreviewStatus({ state, onRetry, onDismiss }: { state: TrainingPreviewState; onRetry?: () => void; onDismiss?: () => void }) {
   const isLoading = state.status === "loading";
   return (
     <div className={`previewStatus ${state.status}`}>
       {isLoading ? <Loader2 className="spinIcon" size={38} /> : <ImageIcon size={38} />}
       <p>{isLoading ? "Preparando vista previa..." : "No se pudo mostrar la vista previa"}</p>
       <small>{state.message || (isLoading ? "Estamos renderizando el video con el contenido seleccionado." : "Revisa los medios del proyecto e inténtalo otra vez.")}</small>
+      {!isLoading && (onRetry || onDismiss) ? (
+        <div className="buttonRow">
+          {onRetry ? <button className="secondary" type="button" onClick={onRetry}><Play size={14} />Reintentar</button> : null}
+          {onDismiss ? <button className="secondary" type="button" onClick={onDismiss}>Ver medio original</button> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

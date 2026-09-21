@@ -181,7 +181,7 @@ export class RenderService {
       });
       return { id: "quick-tutorial-preview", outputPath, streamUrl: "/renders/preview/quick-tutorial-preview/stream" };
     } catch (error) {
-      throw new BadRequestException(`No se pudo generar la vista previa: ${error instanceof Error ? error.message : "error desconocido"}.`);
+      throw new BadRequestException(`No se pudo generar la vista previa: ${sentence(error instanceof Error ? error.message : "error desconocido")}`);
     } finally {
       await workspace.release();
     }
@@ -197,7 +197,7 @@ export class RenderService {
       });
       return { id: "professional-course-scene-preview", outputPath, streamUrl: "/renders/preview/professional-course-scene-preview/stream" };
     } catch (error) {
-      throw new BadRequestException(`No se pudo generar la vista previa: ${error instanceof Error ? error.message : "error desconocido"}.`);
+      throw new BadRequestException(`No se pudo generar la vista previa: ${sentence(error instanceof Error ? error.message : "error desconocido")}`);
     } finally {
       await workspace.release();
     }
@@ -227,7 +227,18 @@ export class RenderService {
     if (project && !selectedScenes.length) {
       throw new BadRequestException(chapter ? `No hay pasos en el capítulo "${chapter}".` : "No hay pasos disponibles para previsualizar.");
     }
-    const scenesList = selectedScenes.map((scene) => sceneForPayload(scene)) as RenderPayload["scenesList"];
+    const missingMedia = selectedScenes.filter((scene) => requiresMedia(scene.type) && !scene.mediaAssetId);
+    if (sceneId && missingMedia.length) {
+      throw new BadRequestException(`El paso "${missingMedia[0].title}" no tiene imagen o video asociado.`);
+    }
+    if (chapter && missingMedia.length === selectedScenes.length) {
+      throw new BadRequestException(`El capítulo "${chapter}" no tiene ningún paso con imagen o video para reproducir.`);
+    }
+    if (!sceneId && !chapter && missingMedia.length) {
+      throw new BadRequestException(`No se puede generar la vista completa: faltan medios en ${missingMedia.length} paso(s). Primero completa "${missingMedia[0].title}".`);
+    }
+    const renderScenes = chapter ? selectedScenes.filter((scene) => !requiresMedia(scene.type) || scene.mediaAssetId) : selectedScenes;
+    const scenesList = renderScenes.map((scene) => sceneForPayload(scene)) as RenderPayload["scenesList"];
     const durationSeconds = Math.max(1, scenesList?.reduce((sum, scene) => sum + scene.duration, 0) ?? (videoType === "COURSE" ? 18 : 20));
     return {
       projectId: project?.id ?? `${videoType.toLowerCase()}-preview`,
@@ -248,6 +259,7 @@ export class RenderService {
       },
       brandProfile: brand ? brandProfileForPayload(brand) : undefined,
       assets: {
+        ...assets,
         logo: assets.logo ?? path.join(demoRoot, "logo.png"),
         billing: assets.billing ?? path.join(demoRoot, "billing.png"),
         products: assets.products ?? path.join(demoRoot, "products.png"),
@@ -476,6 +488,15 @@ export class RenderService {
     }
     return results;
   }
+}
+
+function requiresMedia(type: string) {
+  return !["BRAND_INTRO", "BRAND_OUTRO", "TITLE", "CHAPTER", "CTA", "SUMMARY", "TEXT"].includes(type);
+}
+
+function sentence(value: string) {
+  const trimmed = value.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 function sceneForPayload(scene: {
