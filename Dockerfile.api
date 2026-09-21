@@ -10,6 +10,9 @@ COPY packages/video/package.json packages/video/package.json
 RUN npm ci --include=dev
 
 FROM deps AS build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 COPY tsconfig.base.json ./
 COPY apps/api apps/api
 COPY packages/shared packages/shared
@@ -32,4 +35,4 @@ COPY --from=build /app/apps/api apps/api
 COPY --from=build /app/packages packages
 WORKDIR /app/apps/api
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma db push --schema prisma/schema.prisma && node dist/main.js"]
+CMD ["node", "dist/main.js"]

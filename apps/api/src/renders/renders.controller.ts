@@ -74,6 +74,8 @@ export class RendersController {
   @Get(":id/file")
   async file(@Param("id") id: string, @Res() response: Response) {
     const job = await this.renders.findOne(id);
+    const signedUrl = await this.renders.signedRenderUrl(job);
+    if (signedUrl && job?.status === "COMPLETED") return response.redirect(signedUrl);
     if (!job?.outputPath || job.status !== "COMPLETED" || !existsSync(job.outputPath)) {
       throw new NotFoundException("Rendered file not found.");
     }
@@ -83,6 +85,8 @@ export class RendersController {
   @Get(":id/stream")
   async stream(@Param("id") id: string, @Res() response: Response) {
     const job = await this.renders.findOne(id);
+    const signedUrl = await this.renders.signedRenderUrl(job);
+    if (signedUrl && job?.status === "COMPLETED") return response.redirect(signedUrl);
     if (!job?.outputPath || job.status !== "COMPLETED" || !existsSync(job.outputPath)) {
       throw new NotFoundException("Rendered file not found.");
     }

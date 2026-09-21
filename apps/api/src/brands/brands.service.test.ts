@@ -14,7 +14,7 @@ const baseBrand = {
 };
 
 function serviceWith(prisma: Record<string, unknown>) {
-  return new BrandsService(prisma as never);
+  return new BrandsService(prisma as never, {} as never);
 }
 
 test("Brand with zero projects can be safely deleted", async () => {

@@ -71,6 +71,16 @@ export class BrandsController {
     return this.brands.saveAsset(id, type, file);
   }
 
+  @Post(":id/assets/upload-intent")
+  createAssetUploadIntent(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.brands.createAssetUploadIntent(id, body);
+  }
+
+  @Post(":id/assets/complete-upload")
+  completeAssetUpload(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.brands.completeAssetUpload(id, body);
+  }
+
   @Get(":id/assets/:assetId/file")
   async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
     return this.sendBrandImageOrFile(id, assetId, response, false);

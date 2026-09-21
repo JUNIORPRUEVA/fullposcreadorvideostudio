@@ -1,13 +1,14 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { assertInside, audioRoot, uploadsRoot } from "../lib/paths.js";
 import { validateProjectInput, type ProjectInput } from "./validation.js";
 import { defaultTemplateFor, policyForVideoType } from "../video-studio/video-studio.metadata.js";
+import { R2StorageService, objectKeyFor, sha256File } from "../storage/r2-storage.service.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,7 +30,10 @@ const includeProject = {
 
 @Injectable()
 export class ProjectsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(R2StorageService) private readonly r2: R2StorageService
+  ) {}
 
   async create(body: Record<string, unknown>) {
     const input = validateProjectInput(body) as ProjectInput;
@@ -179,7 +183,13 @@ export class ProjectsService {
             height: asset.height,
             codec: asset.codec,
             trimStart: asset.trimStart,
-            trimEnd: asset.trimEnd
+            trimEnd: asset.trimEnd,
+            storageProvider: asset.storageProvider,
+            objectKey: asset.objectKey,
+            originalFilename: asset.originalFilename,
+            sizeBytes: asset.sizeBytes,
+            checksum: asset.checksum,
+            metadata: asset.metadata
           }))
         }
       },
@@ -197,14 +207,29 @@ export class ProjectsService {
     await this.findOne(projectId);
     const extension = extensionForMime(file.mimetype);
     const filename = `${type}-${randomUUID()}${extension}`;
-    const projectUploadDir = path.join(uploadsRoot, projectId);
-    const finalPath = path.join(projectUploadDir, filename);
+    const objectKey = this.r2.isConfigured() ? objectKeyFor("projects", projectId, type, extension) : undefined;
+    let storageProvider = "local";
+    let checksum: string | undefined;
+    let sizeBytes: number | undefined;
+    let finalPath = "";
 
-    assertInside(uploadsRoot, finalPath);
-    await mkdir(projectUploadDir, { recursive: true });
-    await rename(file.path, finalPath);
+    if (objectKey) {
+      const uploaded = await this.r2.uploadFile(objectKey, file.path, file.mimetype);
+      storageProvider = "r2";
+      checksum = uploaded.checksum;
+      sizeBytes = uploaded.sizeBytes;
+      await rm(file.path, { force: true });
+    } else {
+      const projectUploadDir = path.join(uploadsRoot, projectId);
+      finalPath = path.join(projectUploadDir, filename);
+      assertInside(uploadsRoot, finalPath);
+      await mkdir(projectUploadDir, { recursive: true });
+      await rename(file.path, finalPath);
+      checksum = await sha256File(finalPath);
+      sizeBytes = file.size;
+    }
 
-    const metadata = file.mimetype.startsWith("video/") ? await probeVideo(finalPath) : {};
+    const metadata = file.mimetype.startsWith("video/") && finalPath ? await probeVideo(finalPath) : {};
     return this.prisma.asset.create({
       data: {
         projectId,
@@ -212,13 +237,60 @@ export class ProjectsService {
         filename,
         path: finalPath,
         mimeType: file.mimetype,
+        storageProvider,
+        objectKey,
+        originalFilename: file.originalname,
+        sizeBytes,
+        checksum,
+        metadata: objectKey ? JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), sizeBytes, checksum }) : undefined,
         ...metadata
+      }
+    });
+  }
+
+  async createAssetUploadIntent(projectId: string, body: Record<string, unknown>) {
+    await this.findOne(projectId);
+    const type = str(body.type, "type", true);
+    const filename = str(body.filename, "filename", true, 260);
+    const mimeType = str(body.mimeType, "mimeType", true, 120);
+    const sizeBytes = typeof body.sizeBytes === "number" ? body.sizeBytes : 0;
+    return this.r2.createUploadIntent({ scope: "projects", ownerId: projectId, type: type!, filename: filename!, mimeType: mimeType!, sizeBytes });
+  }
+
+  async completeAssetUpload(projectId: string, body: Record<string, unknown>) {
+    await this.findOne(projectId);
+    const type = str(body.type, "type", true)!;
+    const filename = str(body.filename, "filename", true, 260)!;
+    const mimeType = str(body.mimeType, "mimeType", true, 120)!;
+    const objectKey = str(body.objectKey, "objectKey", true, 520)!;
+    const checksum = str(body.checksum, "checksum", false, 128);
+    const sizeBytes = typeof body.sizeBytes === "number" ? body.sizeBytes : undefined;
+    if (!objectKey.startsWith(`projects/${projectId}/`)) throw new BadRequestException("Uploaded object key is not valid for this project.");
+    const verified = await this.r2.verifyObject(objectKey, { sizeBytes, checksum });
+    return this.prisma.asset.create({
+      data: {
+        projectId,
+        type,
+        filename: filename || path.basename(objectKey),
+        path: "",
+        mimeType,
+        storageProvider: "r2",
+        objectKey,
+        originalFilename: filename,
+        sizeBytes: sizeBytes ?? verified.sizeBytes,
+        checksum,
+        metadata: JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), sizeBytes: sizeBytes ?? verified.sizeBytes, checksum })
       }
     });
   }
 
   async findAsset(projectId: string, assetId: string) {
     return this.prisma.asset.findFirst({ where: { id: assetId, projectId } });
+  }
+
+  async signedAssetUrl(asset: { storageProvider?: string | null; objectKey?: string | null } | null) {
+    if (!asset?.objectKey || asset.storageProvider !== "r2") return undefined;
+    return this.r2.signedGetUrl(asset.objectKey);
   }
 
   createScene(projectId: string, body: Record<string, unknown>) {
@@ -354,6 +426,18 @@ function extensionForMime(mimeType: string) {
   if (mimeType === "video/mp4") return ".mp4";
   if (mimeType === "video/webm") return ".webm";
   return ".jpg";
+}
+
+function str(value: unknown, field: string, required: boolean, max = 240) {
+  if (value === undefined || value === null || value === "") {
+    if (required) throw new BadRequestException(`${field} is required.`);
+    return undefined;
+  }
+  if (typeof value !== "string") throw new BadRequestException(`${field} must be a string.`);
+  const clean = value.trim();
+  if (!clean && required) throw new BadRequestException(`${field} is required.`);
+  if (clean.length > max) throw new BadRequestException(`${field} is too long.`);
+  return clean;
 }
 
 function defaultTemplateFallback(template: string) {

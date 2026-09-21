@@ -55,9 +55,24 @@ export class ProjectsController {
     return this.projects.saveAsset(id, type, file);
   }
 
+  @Post(":id/assets/upload-intent")
+  createAssetUploadIntent(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.projects.createAssetUploadIntent(id, body);
+  }
+
+  @Post(":id/assets/complete-upload")
+  completeAssetUpload(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.projects.completeAssetUpload(id, body);
+  }
+
   @Get(":id/assets/:assetId/file")
   async assetFile(@Param("id") id: string, @Param("assetId") assetId: string, @Res() response: Response) {
     const asset = await this.projects.findAsset(id, assetId);
+    const signedUrl = await this.projects.signedAssetUrl(asset);
+    if (signedUrl) {
+      response.setHeader("Cache-Control", "no-store");
+      return response.redirect(302, signedUrl);
+    }
     if (!asset || !existsSync(asset.path)) throw new NotFoundException("Project asset file not found.");
     response.setHeader("Content-Type", asset.mimeType);
     return response.sendFile(asset.path);

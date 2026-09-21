@@ -1,20 +1,25 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { renderFullPosVideo, renderHybridMobilePreview, renderProfessionalCoursePreview, renderQuickTutorialPreview } from "@fullpos-ad-studio/video";
 import type { AssetType, RenderPayload } from "@fullpos-ad-studio/shared";
-import { rename } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { rendersRoot } from "../lib/paths.js";
 import { AudioService } from "../audio/audio.service.js";
+import { DiskGuardService } from "../storage/disk-guard.service.js";
+import { R2StorageService, extensionFor, objectKeyFor, sha256File } from "../storage/r2-storage.service.js";
 
 @Injectable()
 export class RenderService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AudioService) private readonly audio: AudioService
+    @Inject(AudioService) private readonly audio: AudioService,
+    @Inject(DiskGuardService) private readonly disk: DiskGuardService,
+    @Inject(R2StorageService) private readonly r2: R2StorageService
   ) {}
 
   async enqueue(projectId: string) {
+    await this.disk.assertSystemFreeSpace();
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: { assets: true }
@@ -236,6 +241,7 @@ export class RenderService {
   }
 
   async run(jobId: string) {
+    const workspace = await this.disk.createRenderWorkspace(1);
     const job = await this.prisma.renderJob.findUnique({
       where: { id: jobId },
       include: {
@@ -246,136 +252,164 @@ export class RenderService {
     });
     if (!job) throw new NotFoundException("Render job not found.");
 
-    await this.prisma.renderJob.update({
-      where: { id: jobId },
-      data: { status: "RENDERING", progress: 1, startedAt: new Date() }
-    });
+    try {
+      await this.prisma.renderJob.update({
+        where: { id: jobId },
+        data: { status: "RENDERING", progress: 1, startedAt: new Date() }
+      });
 
-    const assets: Partial<Record<AssetType, string>> = {};
-    for (const asset of job.project.assets) {
-      assets[asset.type as AssetType] = asset.path;
-      (assets as Record<string, string>)[asset.id] = asset.path;
-    }
+      const assets = await this.localizeAssets(job.project.assets, workspace.dir);
+      const baseScenes = job.project.scenes.map((scene) => sceneForPayload(scene));
+      const sceneNarration = await this.prepareSceneNarration(job, baseScenes);
+      const scenesList = baseScenes.map((scene) => {
+        const prepared = sceneNarration.get(scene.id);
+        const narrationDuration = prepared?.durationSeconds ?? scene.narrationDurationSeconds;
+        const duration = scene.durationMode === "AUTO" && narrationDuration ? Math.max(scene.duration, narrationDuration + 0.6) : scene.duration;
+        return {
+          ...scene,
+          duration,
+          narrationAudioPath: prepared?.path ?? scene.narrationAudioPath,
+          narrationDurationSeconds: narrationDuration
+        };
+      });
+      const timelineDuration = Math.max(1, scenesList.reduce((sum, scene) => sum + scene.duration, 0));
 
-    const baseScenes = job.project.scenes.map((scene) => sceneForPayload(scene));
-    const sceneNarration = await this.prepareSceneNarration(job, baseScenes);
-    const scenesList = baseScenes.map((scene) => {
-      const prepared = sceneNarration.get(scene.id);
-      const narrationDuration = prepared?.durationSeconds ?? scene.narrationDurationSeconds;
-      const duration = scene.durationMode === "AUTO" && narrationDuration ? Math.max(scene.duration, narrationDuration + 0.6) : scene.duration;
-      return {
-        ...scene,
-        duration,
-        narrationAudioPath: prepared?.path ?? scene.narrationAudioPath,
-        narrationDurationSeconds: narrationDuration
-      };
-    });
-    const timelineDuration = Math.max(1, scenesList.reduce((sum, scene) => sum + scene.duration, 0));
-
-    const preparedAudio = await this.audio.prepare({
-      jobId,
-      projectId: job.projectId,
-      voiceoverEnabled: job.project.voiceoverEnabled,
-      voiceoverScript: job.project.voiceoverScript,
-      voiceProfile: job.project.voiceProfile,
-      voiceId: job.project.voiceId,
-      voiceReferencePath: job.project.voiceReferencePath,
-      voiceName: job.project.voiceName,
-      voiceSpeed: job.project.voiceSpeed,
-      voiceVolume: job.project.voiceVolume,
-      musicEnabled: job.project.musicEnabled,
-      musicTrackId: job.project.musicTrackId,
-      musicPath: job.project.musicPath,
-      customMusicPath: job.project.customMusicPath,
-      musicVolume: job.project.musicVolume,
-      durationSeconds: timelineDuration,
-      pronunciationDictionary: job.project.brandProfile?.pronunciationDictionary ? safePronunciations(job.project.brandProfile.pronunciationDictionary) : undefined
-    });
-
-    await this.prisma.renderJob.update({
-      where: { id: jobId },
-      data: {
-        voiceoverPath: preparedAudio.voiceoverPath,
-        musicPath: preparedAudio.musicPath,
-        audioNote: preparedAudio.note
-      }
-    });
-
-    const payload: RenderPayload = {
-      projectId: job.projectId,
-      videoType: job.project.videoType as RenderPayload["videoType"],
-      template: (job.project.template === "fullpos-premium-vertical" ? "saas-premium-ad" : job.project.template) as RenderPayload["template"],
-      format: job.project.format as RenderPayload["format"],
-      fps: 30,
-      durationSeconds: job.project.durationSeconds ?? timelineDuration,
-      subtitleMode: job.project.subtitleMode as RenderPayload["subtitleMode"],
-      narrationStyle: job.project.narrationStyle as RenderPayload["narrationStyle"],
-      brand: {
-        name: job.project.productName,
-        headline: job.project.headline,
-        subheadline: job.project.subheadline ?? undefined,
-        offer: job.project.offer,
-        price: job.project.price,
-        website: job.project.website
-      },
-      brandProfile: job.project.brandProfile ? brandProfileForPayload(job.project.brandProfile) : undefined,
-      assets,
-      scenesList,
-      audio: {
+      const preparedAudio = await this.audio.prepare({
+        jobId,
+        projectId: job.projectId,
         voiceoverEnabled: job.project.voiceoverEnabled,
-        musicEnabled: job.project.musicEnabled,
-        voiceoverScript: job.project.voiceoverScript ?? undefined,
-        voiceName: job.project.voiceName,
+        voiceoverScript: job.project.voiceoverScript,
         voiceProfile: job.project.voiceProfile,
-        voiceId: job.project.voiceId ?? undefined,
-        voiceReferencePath: job.project.voiceReferencePath ?? undefined,
+        voiceId: job.project.voiceId,
+        voiceReferencePath: job.project.voiceReferencePath,
+        voiceName: job.project.voiceName,
         voiceSpeed: job.project.voiceSpeed,
-        voiceOverPath: preparedAudio.voiceoverPath,
-        musicPath: preparedAudio.musicPath,
-        musicVolume: job.project.musicVolume,
         voiceVolume: job.project.voiceVolume,
-        voiceStartSeconds: 0.4
-      },
-      scenes: {
-        billing: { scale: 1.18, y: -18, fit: "cover" },
-        products: { scale: 1.22, y: -12, fit: "cover" },
-        reports: { scale: 1.2, y: -10, fit: "cover" },
-        mobile: { scale: 1.08, y: -24, fit: "cover" },
-        devices: { scale: 1.05, y: -16, fit: "cover" }
-      },
-      visual: {
-        style: job.project.visualStyle,
-        motion: job.project.motionIntensity
-      }
-    };
+        musicEnabled: job.project.musicEnabled,
+        musicTrackId: job.project.musicTrackId,
+        musicPath: job.project.musicPath,
+        customMusicPath: job.project.customMusicPath,
+        musicVolume: job.project.musicVolume,
+        durationSeconds: timelineDuration,
+        pronunciationDictionary: job.project.brandProfile?.pronunciationDictionary ? safePronunciations(job.project.brandProfile.pronunciationDictionary) : undefined
+      });
 
-    const renderer = payload.template === "quick-tutorial" || payload.template === "visual-support" || payload.template === "customer-onboarding"
-      ? renderQuickTutorialPreview
-      : payload.template === "professional-course"
-        ? renderProfessionalCoursePreview
-        : renderFullPosVideo;
-    const outputPath = await renderer(payload, {
-      renderId: jobId,
-      outputRoot: rendersRoot,
-      onProgress: async (progress: number) => {
-        await this.prisma.renderJob.update({
-          where: { id: jobId },
-          data: { progress: Math.max(1, Math.min(99, progress)) }
-        });
-      }
-    });
-    const exportPath = path.join(path.dirname(outputPath), `${safeSlug(job.project.brandProfile?.slug ?? job.project.productName)}_${safeSlug(job.project.name)}_${timestampForFile(new Date())}.mp4`);
-    await rename(outputPath, exportPath);
+      await this.prisma.renderJob.update({
+        where: { id: jobId },
+        data: {
+          voiceoverPath: preparedAudio.voiceoverPath,
+          musicPath: preparedAudio.musicPath,
+          audioNote: preparedAudio.note
+        }
+      });
 
-    return this.prisma.renderJob.update({
-      where: { id: jobId },
-      data: {
-        status: "COMPLETED",
-        progress: 100,
-        outputPath: exportPath,
-        completedAt: new Date()
+      const payload: RenderPayload = {
+        projectId: job.projectId,
+        videoType: job.project.videoType as RenderPayload["videoType"],
+        template: (job.project.template === "fullpos-premium-vertical" ? "saas-premium-ad" : job.project.template) as RenderPayload["template"],
+        format: job.project.format as RenderPayload["format"],
+        fps: 30,
+        durationSeconds: job.project.durationSeconds ?? timelineDuration,
+        subtitleMode: job.project.subtitleMode as RenderPayload["subtitleMode"],
+        narrationStyle: job.project.narrationStyle as RenderPayload["narrationStyle"],
+        brand: {
+          name: job.project.productName,
+          headline: job.project.headline,
+          subheadline: job.project.subheadline ?? undefined,
+          offer: job.project.offer,
+          price: job.project.price,
+          website: job.project.website
+        },
+        brandProfile: job.project.brandProfile ? brandProfileForPayload(job.project.brandProfile) : undefined,
+        assets,
+        scenesList,
+        audio: {
+          voiceoverEnabled: job.project.voiceoverEnabled,
+          musicEnabled: job.project.musicEnabled,
+          voiceoverScript: job.project.voiceoverScript ?? undefined,
+          voiceName: job.project.voiceName,
+          voiceProfile: job.project.voiceProfile,
+          voiceId: job.project.voiceId ?? undefined,
+          voiceReferencePath: job.project.voiceReferencePath ?? undefined,
+          voiceSpeed: job.project.voiceSpeed,
+          voiceOverPath: preparedAudio.voiceoverPath,
+          musicPath: preparedAudio.musicPath,
+          musicVolume: job.project.musicVolume,
+          voiceVolume: job.project.voiceVolume,
+          voiceStartSeconds: 0.4
+        },
+        scenes: {
+          billing: { scale: 1.18, y: -18, fit: "cover" },
+          products: { scale: 1.22, y: -12, fit: "cover" },
+          reports: { scale: 1.2, y: -10, fit: "cover" },
+          mobile: { scale: 1.08, y: -24, fit: "cover" },
+          devices: { scale: 1.05, y: -16, fit: "cover" }
+        },
+        visual: {
+          style: job.project.visualStyle,
+          motion: job.project.motionIntensity
+        }
+      };
+
+      const renderer = payload.template === "quick-tutorial" || payload.template === "visual-support" || payload.template === "customer-onboarding"
+        ? renderQuickTutorialPreview
+        : payload.template === "professional-course"
+          ? renderProfessionalCoursePreview
+          : renderFullPosVideo;
+      const outputPath = await renderer(payload, {
+        renderId: jobId,
+        outputRoot: workspace.dir,
+        onProgress: async (progress: number) => {
+          await this.prisma.renderJob.update({
+            where: { id: jobId },
+            data: { progress: Math.max(1, Math.min(99, progress)) }
+          });
+        }
+      });
+      const exportPath = path.join(path.dirname(outputPath), `${safeSlug(job.project.brandProfile?.slug ?? job.project.productName)}_${safeSlug(job.project.name)}_${timestampForFile(new Date())}.mp4`);
+      await rename(outputPath, exportPath);
+
+      const objectKey = objectKeyFor("projects", job.projectId, "render", ".mp4");
+      const checksum = await sha256File(exportPath);
+      const stored = await this.r2.uploadFile(objectKey, exportPath, "video/mp4");
+      return this.prisma.renderJob.update({
+        where: { id: jobId },
+        data: {
+          status: "COMPLETED",
+          progress: 100,
+          outputPath: "",
+          storageProvider: "r2",
+          objectKey,
+          sizeBytes: stored.sizeBytes,
+          checksum,
+          completedAt: new Date()
+        }
+      });
+    } finally {
+      await workspace.release();
+    }
+  }
+
+  async signedRenderUrl(job: { storageProvider?: string | null; objectKey?: string | null } | null) {
+    if (!job?.objectKey || job.storageProvider !== "r2") return undefined;
+    return this.r2.signedGetUrl(job.objectKey);
+  }
+
+  private async localizeAssets(assetsList: Array<{ id: string; type: string; path: string; mimeType: string; storageProvider?: string | null; objectKey?: string | null }>, workspaceDir: string) {
+    const assets: Partial<Record<AssetType, string>> = {};
+    const assetDir = path.join(workspaceDir, "assets");
+    await mkdir(assetDir, { recursive: true });
+    for (const asset of assetsList) {
+      let assetPath = asset.path;
+      if (asset.storageProvider === "r2" && asset.objectKey) {
+        const extension = path.extname(asset.objectKey) || extensionFor(asset.mimeType);
+        assetPath = path.join(assetDir, `${asset.id}${extension}`);
+        await this.r2.downloadToFile(asset.objectKey, assetPath);
       }
-    });
+      assets[asset.type as AssetType] = assetPath;
+      (assets as Record<string, string>)[asset.id] = assetPath;
+    }
+    return assets;
   }
 
   private async prepareSceneNarration(job: {

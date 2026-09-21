@@ -706,9 +706,7 @@ export default function Home() {
     try {
       setBusy(`upload-${type}`);
       const id = await ensureProject();
-      const form = new FormData();
-      form.append("file", file);
-      await fetchJson(`${API_URL}/projects/${id}/assets?type=${type}`, { method: "POST", body: form });
+      await uploadProjectAsset(id, type, file);
       setPreviews((current) => ({ ...current, [type]: URL.createObjectURL(file) }));
       setAssetNames((current) => ({ ...current, [type]: file.name }));
       await refreshAll();
@@ -749,9 +747,7 @@ export default function Home() {
       for (const [index, file] of validFiles.entries()) {
         const isVideo = file.type === "video/mp4" || file.type === "video/webm";
         const type: AssetType = isVideo ? "screen_recording" : "image";
-        const form = new FormData();
-        form.append("file", file);
-        const asset = await fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${id}/assets?type=${type}`, { method: "POST", body: form });
+        const asset = await uploadProjectAsset(id, type, file);
         const scene = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -902,9 +898,7 @@ export default function Home() {
       });
       let saved = brand;
       if (brandLogoFile) {
-        const form = new FormData();
-        form.append("file", brandLogoFile);
-        await fetchJson(`${API_URL}/brands/${brand.id}/assets?type=LOGO`, { method: "POST", body: form });
+        await uploadBrandAsset(brand.id, "LOGO", brandLogoFile);
         saved = await fetchJson<BrandProfile>(`${API_URL}/brands/${brand.id}`);
       }
       await loadBrands();
@@ -1012,9 +1006,7 @@ export default function Home() {
       for (const [index, file] of uploadable.entries()) {
         const target = targets[index];
         if (!target) break;
-        const form = new FormData();
-        form.append("file", file);
-        await fetchJson(`${API_URL}/projects/${id}/assets?type=${target.type}`, { method: "POST", body: form });
+        await uploadProjectAsset(id, target.type, file);
         nextPreviews[target.type] = URL.createObjectURL(file);
         nextNames[target.type] = file.name;
       }
@@ -2944,6 +2936,12 @@ function isDemoBrand(brand: BrandProfile) {
 
 type StudioRequestInit = RequestInit & { skipAuth?: boolean };
 
+type UploadIntent = {
+  objectKey: string;
+  signedUrl: string;
+  expiresInSeconds: number;
+};
+
 async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!init?.skipAuth && typeof window !== "undefined") {
@@ -2954,6 +2952,51 @@ async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
   const response = await fetch(url, { ...requestInit, headers });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
+}
+
+async function uploadProjectAsset(projectId: string, type: AssetType, file: File) {
+  const intent = await fetchJson<UploadIntent>(`${API_URL}/projects/${projectId}/assets/upload-intent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
+  });
+  const upload = await fetch(intent.signedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file
+  });
+  if (!upload.ok) throw new Error("No se pudo cargar el archivo en almacenamiento.");
+  const checksum = await sha256BrowserFile(file);
+  return fetchJson<{ id: string; durationSeconds?: number }>(`${API_URL}/projects/${projectId}/assets/complete-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
+  });
+}
+
+async function uploadBrandAsset(brandId: string, type: string, file: File) {
+  const intent = await fetchJson<UploadIntent>(`${API_URL}/brands/${brandId}/assets/upload-intent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size })
+  });
+  const upload = await fetch(intent.signedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file
+  });
+  if (!upload.ok) throw new Error("No se pudo cargar el logo en almacenamiento.");
+  const checksum = await sha256BrowserFile(file);
+  return fetchJson<BrandAsset>(`${API_URL}/brands/${brandId}/assets/complete-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, filename: file.name, mimeType: file.type, sizeBytes: file.size, checksum, objectKey: intent.objectKey })
+  });
+}
+
+async function sha256BrowserFile(file: File) {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(hashBuffer)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function renderStage(job: RenderJob) {

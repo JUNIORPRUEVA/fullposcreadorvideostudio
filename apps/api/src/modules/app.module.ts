@@ -22,9 +22,11 @@ import { BrandsService } from "../brands/brands.service.js";
 import { HealthController } from "../health/health.controller.js";
 import { AuthController } from "../auth/auth.controller.js";
 import { AuthService } from "../auth/auth.service.js";
+import { R2StorageService } from "../storage/r2-storage.service.js";
+import { DiskGuardService } from "../storage/disk-guard.service.js";
 
 @Module({
   controllers: [HealthController, AuthController, ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController],
-  providers: [PrismaService, AuthService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService]
+  providers: [PrismaService, AuthService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService, R2StorageService, DiskGuardService]
 })
 export class AppModule {}

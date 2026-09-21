@@ -1,15 +1,15 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { assertInside, uploadsRoot } from "../lib/paths.js";
 import { createR2Client, R2_SIGNED_URL_TTL_SECONDS } from "../ai-video/r2-signed-url-ai-asset-transport.js";
 import { readR2Config } from "../ai-video/r2-env.js";
 import { safeBrandExport, slugify } from "./brand-utils.js";
+import { R2StorageService, objectKeyFor, sha256File } from "../storage/r2-storage.service.js";
 
 const includeBrand = { assets: true, projects: { select: { id: true, name: true, videoType: true } } };
 const brandAssetTypes = new Set(["LOGO", "LOGO_LIGHT", "LOGO_DARK", "WATERMARK", "INTRO_VIDEO", "OUTRO_VIDEO", "BACKGROUND_IMAGE", "BACKGROUND_VIDEO", "MUSIC", "VOICE_REFERENCE", "PRODUCT_IMAGE", "DEVICE_SCREENSHOT", "OTHER"]);
@@ -47,7 +47,10 @@ type BrandInput = {
 
 @Injectable()
 export class BrandsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(R2StorageService) private readonly r2: R2StorageService
+  ) {}
 
   findAll(includeArchived = false) {
     return this.prisma.brandProfile.findMany({
@@ -179,22 +182,22 @@ export class BrandsService {
     }
     const extension = extensionFor(file.mimetype);
     const filename = `${type.toLowerCase()}-${randomUUID()}${extension}`;
-    const brandDir = path.join(uploadsRoot, "brands", brandId);
-    const finalPath = path.join(brandDir, filename);
-    assertInside(uploadsRoot, finalPath);
     const r2 = readR2Config();
-    const objectKey = r2 ? `brand-assets/${brandId}/${filename}` : undefined;
+    const objectKey = r2 ? objectKeyFor("brands", brandId, type, extension) : undefined;
+    let finalPath = "";
+    let checksum: string | undefined;
     if (r2 && objectKey) {
-      await createR2Client(r2).send(new PutObjectCommand({
-        Bucket: r2.bucketName,
-        Key: objectKey,
-        Body: createReadStream(file.path),
-        ContentType: file.mimetype,
-        ContentLength: file.size
-      }));
+      const uploaded = await this.r2.uploadFile(objectKey, file.path, file.mimetype);
+      checksum = uploaded.checksum;
+      await rm(file.path, { force: true });
+    } else {
+      const brandDir = path.join(uploadsRoot, "brands", brandId);
+      finalPath = path.join(brandDir, filename);
+      assertInside(uploadsRoot, finalPath);
+      await mkdir(brandDir, { recursive: true });
+      await rename(file.path, finalPath);
+      checksum = await sha256File(finalPath);
     }
-    await mkdir(brandDir, { recursive: true });
-    await rename(file.path, finalPath);
     const asset = await this.prisma.brandAsset.create({
       data: {
         brandProfileId: brandId,
@@ -204,7 +207,45 @@ export class BrandsService {
         mimeType: file.mimetype,
         storageProvider: r2 && objectKey ? "r2" : "local",
         objectKey,
-        metadata: objectKey ? JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), size: file.size }) : undefined
+        metadata: objectKey ? JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), size: file.size, checksum }) : undefined
+      }
+    });
+    const update = assetFieldUpdate(type, asset.id);
+    if (Object.keys(update).length) await this.prisma.brandProfile.update({ where: { id: brandId }, data: update });
+    return asset;
+  }
+
+  async createAssetUploadIntent(brandId: string, body: Record<string, unknown>) {
+    await this.findOne(brandId);
+    const type = str(body.type, "type", true)!;
+    const filename = str(body.filename, "filename", true, 260)!;
+    const mimeType = str(body.mimeType, "mimeType", true, 120)!;
+    const sizeBytes = typeof body.sizeBytes === "number" ? body.sizeBytes : 0;
+    if (!brandAssetTypes.has(type)) throw new BadRequestException("Unsupported brand asset type.");
+    return this.r2.createUploadIntent({ scope: "brands", ownerId: brandId, type, filename, mimeType, sizeBytes });
+  }
+
+  async completeAssetUpload(brandId: string, body: Record<string, unknown>) {
+    await this.findOne(brandId);
+    const type = str(body.type, "type", true)!;
+    const filename = str(body.filename, "filename", true, 260)!;
+    const mimeType = str(body.mimeType, "mimeType", true, 120)!;
+    const objectKey = str(body.objectKey, "objectKey", true, 520)!;
+    const checksum = str(body.checksum, "checksum", false, 128);
+    const sizeBytes = typeof body.sizeBytes === "number" ? body.sizeBytes : undefined;
+    if (!brandAssetTypes.has(type)) throw new BadRequestException("Unsupported brand asset type.");
+    if (!objectKey.startsWith(`brands/${brandId}/`)) throw new BadRequestException("Uploaded object key is not valid for this brand.");
+    const verified = await this.r2.verifyObject(objectKey, { sizeBytes, checksum });
+    const asset = await this.prisma.brandAsset.create({
+      data: {
+        brandProfileId: brandId,
+        type,
+        filename,
+        path: "",
+        mimeType,
+        storageProvider: "r2",
+        objectKey,
+        metadata: JSON.stringify({ objectKey, uploadedAt: new Date().toISOString(), size: sizeBytes ?? verified.sizeBytes, checksum })
       }
     });
     const update = assetFieldUpdate(type, asset.id);

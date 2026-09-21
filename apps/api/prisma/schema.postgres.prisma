@@ -57,6 +57,12 @@ model Asset {
   filename  String
   path      String
   mimeType  String
+  storageProvider String @default("local")
+  objectKey String?
+  originalFilename String?
+  sizeBytes Int?
+  checksum String?
+  metadata  String?
   durationSeconds Float?
   width     Int?
   height    Int?
@@ -166,6 +172,10 @@ model RenderJob {
   status       String
   progress     Int       @default(0)
   outputPath   String?
+  storageProvider String @default("local")
+  objectKey    String?
+  sizeBytes    Int?
+  checksum     String?
   voiceoverPath String?
   musicPath     String?
   audioNote     String?
