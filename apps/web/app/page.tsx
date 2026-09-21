@@ -2237,7 +2237,7 @@ function StoryboardStep({
               void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl ? (isVideoMedia ? <video controls src={mediaUrl} /> : <img src={mediaUrl} alt="" />) : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}><Play size={16} />Ver paso</button>
@@ -2373,6 +2373,49 @@ function toolInstruction(tool: "zoom" | "highlight" | "arrow" | "circle" | "clic
 function assetSceneType(asset?: Project["assets"][number]) {
   if (!asset) return undefined;
   return asset.mimeType?.startsWith("video/") ? "SCREEN_RECORDING" : "IMAGE";
+}
+
+function ProjectMediaPreview({ projectId, assetId, isVideo, filename }: { projectId: string; assetId: string; isVideo: boolean; filename: string }) {
+  const [source, setSource] = useState("");
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let objectUrl = "";
+
+    async function load() {
+      setSource("");
+      setFailed(false);
+      try {
+        const access = await fetchJson<{ url?: string | null }>(`${API_URL}/projects/${projectId}/assets/${assetId}/access-url`);
+        if (!alive) return;
+        if (access.url) {
+          setSource(access.url);
+          return;
+        }
+
+        const headers = new Headers();
+        const token = window.localStorage.getItem("videoStudioToken");
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+        const response = await fetch(`${API_URL}/projects/${projectId}/assets/${assetId}/file`, { headers });
+        if (!response.ok) throw new Error(await response.text());
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (alive) setSource(objectUrl);
+      } catch {
+        if (alive) setFailed(true);
+      }
+    }
+
+    void load();
+    return () => {
+      alive = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId, assetId]);
+
+  if (failed) return <div className="emptyState"><ImageIcon size={34} /><p>No se pudo cargar el medio asociado.</p><small>{filename}</small></div>;
+  if (!source) return <div className="emptyState"><ImageIcon size={34} /><p>Cargando medio...</p><small>{filename}</small></div>;
+  return isVideo ? <video controls src={source} /> : <img src={source} alt={filename} />;
 }
 
 function estimateSpeechSeconds(text: string) {

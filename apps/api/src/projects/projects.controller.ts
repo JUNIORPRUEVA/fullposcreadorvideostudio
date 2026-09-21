@@ -78,6 +78,13 @@ export class ProjectsController {
     return response.sendFile(asset.path);
   }
 
+  @Get(":id/assets/:assetId/access-url")
+  async assetAccessUrl(@Param("id") id: string, @Param("assetId") assetId: string) {
+    const asset = await this.projects.findAsset(id, assetId);
+    if (!asset) throw new NotFoundException("Project asset file not found.");
+    return { url: await this.projects.signedAssetUrl(asset) };
+  }
+
   @Post(":id/scenes")
   createScene(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return this.projects.createScene(id, body);
