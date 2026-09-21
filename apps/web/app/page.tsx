@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   Archive,
   ChevronLeft,
@@ -14,6 +14,7 @@ import {
   FolderKanban,
   Gauge,
   Image as ImageIcon,
+  Loader2,
   LogOut,
   Menu,
   MousePointer,
@@ -34,7 +35,7 @@ import {
 import type { AssetType, VideoType } from "@fullpos-ad-studio/shared";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-type Section = "Dashboard" | "Crear video" | "Proyectos" | "Videos" | "Marcas" | "Configuración";
+type Section = "Dashboard" | "Crear video" | "Biblioteca" | "Proyectos" | "Videos" | "Marcas" | "Configuración";
 
 type RenderJob = {
   id: string;
@@ -191,6 +192,11 @@ type BrandProfile = {
   fontHeading: string;
   fontBody: string;
   projects?: Array<{ id: string; name: string; videoType: VideoType }>;
+};
+
+type TrainingPreviewState = {
+  status: "idle" | "loading" | "ready" | "error";
+  message: string;
 };
 
 type ProjectAsset = { id: string; type: string; filename: string; path: string; mimeType?: string; durationSeconds?: number };
@@ -403,6 +409,7 @@ const videoTypeCards: Array<{ id: VideoType; icon: string; label: string; descri
 const nav: Array<[Section, typeof Gauge]> = [
   ["Dashboard", Gauge],
   ["Crear video", Clapperboard],
+  ["Biblioteca", Archive],
   ["Proyectos", FolderKanban],
   ["Videos", FileVideo],
   ["Marcas", Sparkles],
@@ -429,6 +436,7 @@ export default function Home() {
   const [stylePreviewUrl, setStylePreviewUrl] = useState("");
   const [hybridPreviewUrl, setHybridPreviewUrl] = useState("");
   const [trainingPreviewUrl, setTrainingPreviewUrl] = useState("");
+  const [trainingPreviewState, setTrainingPreviewState] = useState<TrainingPreviewState>({ status: "idle", message: "" });
   const [customMusicUrl, setCustomMusicUrl] = useState("");
   const [activeAudio, setActiveAudio] = useState<HTMLAudioElement | null>(null);
   const [activePreview, setActivePreview] = useState("");
@@ -448,11 +456,30 @@ export default function Home() {
   const [brandSearch, setBrandSearch] = useState("");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const sceneSaveTimers = useRef<Record<string, number>>({});
+  const scenePendingPatches = useRef<Record<string, Partial<StoryScene>>>({});
 
   useEffect(() => {
     setAuthToken(window.localStorage.getItem("videoStudioToken") ?? "");
     setSidebarExpanded(window.localStorage.getItem("videoStudioSidebar") === "expanded");
     void loadAuthStatus();
+  }, []);
+
+  useEffect(() => {
+    function preventAppZoom(event: WheelEvent) {
+      if (event.ctrlKey) event.preventDefault();
+    }
+    function preventZoomKeys(event: KeyboardEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (["+", "-", "=", "0"].includes(event.key)) event.preventDefault();
+    }
+    window.addEventListener("wheel", preventAppZoom, { passive: false });
+    window.addEventListener("keydown", preventZoomKeys);
+    return () => {
+      window.removeEventListener("wheel", preventAppZoom);
+      window.removeEventListener("keydown", preventZoomKeys);
+      Object.values(sceneSaveTimers.current).forEach((timer) => window.clearTimeout(timer));
+    };
   }, []);
 
   useEffect(() => {
@@ -1406,20 +1433,31 @@ export default function Home() {
 
   async function updateScene(sceneId: string, patch: Partial<StoryScene>) {
     if (!projectId) return;
-    try {
-      setBusy(`scene-update-${sceneId}`);
-      await fetchJson(`${API_URL}/projects/${projectId}/scenes/${sceneId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch)
-      });
-      await refreshAll();
-      show("success", "Escena actualizada.");
-    } catch (error) {
-      show("error", getErrorMessage(error));
-    } finally {
-      setBusy(null);
-    }
+    setProjects((current) => current.map((project) => {
+      if (project.id !== projectId) return project;
+      return {
+        ...project,
+        scenes: project.scenes?.map((scene) => scene.id === sceneId ? { ...scene, ...patch } : scene)
+      };
+    }));
+    scenePendingPatches.current[sceneId] = { ...(scenePendingPatches.current[sceneId] ?? {}), ...patch };
+    if (sceneSaveTimers.current[sceneId]) window.clearTimeout(sceneSaveTimers.current[sceneId]);
+    sceneSaveTimers.current[sceneId] = window.setTimeout(async () => {
+      const pending = scenePendingPatches.current[sceneId];
+      delete scenePendingPatches.current[sceneId];
+      delete sceneSaveTimers.current[sceneId];
+      if (!pending) return;
+      try {
+        await fetchJson(`${API_URL}/projects/${projectId}/scenes/${sceneId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pending)
+        });
+      } catch (error) {
+        show("error", getErrorMessage(error));
+        await refreshAll();
+      }
+    }, 650);
   }
 
   async function moveScene(sceneId: string, direction: -1 | 1) {
@@ -1447,8 +1485,16 @@ export default function Home() {
 
   async function previewTrainingScene(sceneId?: string, chapter?: string) {
     if (!projectId) return show("info", "Guarda o abre un proyecto para previsualizar.");
+    const previewBusyKey = sceneId ? `scene-preview-${sceneId}` : chapter ? `chapter-preview-${chapter}` : "full-preview";
+    const loadingMessage = sceneId
+      ? "Generando vista previa del paso..."
+      : chapter
+        ? `Generando vista previa del capítulo "${chapter}" desde su primer paso...`
+        : "Generando vista previa completa...";
     try {
-      setBusy(sceneId ? `scene-preview-${sceneId}` : "chapter-preview");
+      setBusy(previewBusyKey);
+      setTrainingPreviewUrl("");
+      setTrainingPreviewState({ status: "loading", message: loadingMessage });
       const endpoint = draft.videoType === "COURSE" || draft.format === "16:9" ? "course-scene-preview" : "quick-tutorial-preview";
       const preview = await fetchJson<{ streamUrl: string }>(`${API_URL}/renders/${endpoint}`, {
         method: "POST",
@@ -1456,9 +1502,13 @@ export default function Home() {
         body: JSON.stringify({ projectId, sceneId, chapter })
       });
       setTrainingPreviewUrl(`${API_URL}${preview.streamUrl}`);
+      setTrainingPreviewState({ status: "ready", message: sceneId ? "Vista previa del paso lista." : chapter ? "Vista previa del capítulo lista." : "Vista previa completa lista." });
       show("success", sceneId ? "Vista previa de escena generada." : chapter ? "Vista previa de capítulo generada." : "Vista previa completa generada.");
     } catch (error) {
-      show("error", getErrorMessage(error));
+      const message = getErrorMessage(error);
+      setTrainingPreviewUrl("");
+      setTrainingPreviewState({ status: "error", message });
+      show("error", `No se pudo generar la vista previa: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -1471,6 +1521,8 @@ export default function Home() {
     setAiQuote(null);
     setAiJobs(project.aiVideoJobs ?? []);
     setPreviews({});
+    setTrainingPreviewUrl("");
+    setTrainingPreviewState({ status: "idle", message: "" });
     setAssetNames(Object.fromEntries(project.assets.map((asset) => [asset.type, asset.filename])));
     setCustomMusicUrl(project.customMusicPath ? `${API_URL}/projects/${project.id}/music/file` : "");
     setSection("Crear video");
@@ -1533,6 +1585,8 @@ export default function Home() {
     setCustomMusicUrl("");
     setVoicePreviewUrl("");
     setMixPreviewUrl("");
+    setTrainingPreviewUrl("");
+    setTrainingPreviewState({ status: "idle", message: "" });
     setAiQuote(null);
     setAiJobs([]);
     setStep(1);
@@ -1580,6 +1634,8 @@ export default function Home() {
     );
   }
 
+  const isMainEditorMode = section === "Crear video" && step === 3;
+
   return (
     <div className={`shell ${sidebarExpanded ? "sidebarExpanded" : "sidebarCollapsed"} ${mobileSidebarOpen ? "mobileNavOpen" : ""}`}>
       <div className="mobileScrim" role="presentation" onClick={() => setMobileSidebarOpen(false)} />
@@ -1625,7 +1681,7 @@ export default function Home() {
         </nav>
       </aside>
 
-      <main className="main">
+      <main className={`main ${isMainEditorMode ? "mainEditorMode" : ""}`}>
         <section className="topbar">
           <button className="mobileMenuButton secondary iconButton" type="button" aria-label="Abrir menú" onPointerDown={openMobileSidebar} onMouseDown={openMobileSidebar} onClick={openMobileSidebar}>
             <Menu size={20} />
@@ -1681,7 +1737,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="steps">
-                {["Configuración", "Contenido", "Editar", "Biblioteca", "Voz y música", "Exportar"].map((label, index) => (
+                {["Configuración", "Contenido", "Editar", "Voz y música", "Exportar"].map((label, index) => (
                   <button key={label} type="button" className={`step ${step === index + 1 ? "active" : ""}`} onClick={() => setStep(index + 1)}>
                     {index + 1}. {label}
                   </button>
@@ -1705,14 +1761,8 @@ export default function Home() {
                 />
               )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} previewState={trainingPreviewState} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
               {step === 4 && (
-                <>
-                  <FormatStep draft={draft} setDraft={setDraft} busy={busy} stylePreviewUrl={stylePreviewUrl} onPreviewStyle={previewStyle} />
-                  <AssetsStep previews={previews} assetNames={assetNames} project={selectedProject} busy={busy} onUpload={onUpload} onUploadMany={onUploadMany} />
-                </>
-              )}
-              {step === 5 && (
                 <AudioStep
                   draft={draft}
                   setDraft={setDraft}
@@ -1733,7 +1783,7 @@ export default function Home() {
                   onVoiceReferenceUpload={onVoiceReferenceUpload}
                 />
               )}
-              {step === 6 && (
+              {step === 5 && (
                 <div className="grid">
                   <AiEnhancementStep
                     draft={draft}
@@ -1777,11 +1827,25 @@ export default function Home() {
               <div className="actions">
                 <button className="secondary" type="button" disabled={step === 1} onClick={() => setStep((value) => Math.max(1, value - 1))}>Atrás</button>
                 {step > 1 ? <button className="secondary" type="button" onClick={() => void saveDraft()} disabled={busy !== null}><Save size={16} />Guardar borrador</button> : <span className="autosaveHint">Guardado automatico al continuar</span>}
-                <button className="primary" type="button" disabled={step === 6 || (step === 1 && (!draft.brandProfileId || !draft.videoType))} onClick={() => setStep((value) => Math.min(6, value + 1))}>{step === 1 ? "Continuar" : "Siguiente"}</button>
+                <button className="primary" type="button" disabled={step === 5 || (step === 1 && (!draft.brandProfileId || !draft.videoType))} onClick={() => setStep((value) => Math.min(5, value + 1))}>{step === 1 ? "Continuar" : "Siguiente"}</button>
               </div>
             </div>
 
           </section>
+        )}
+
+        {section === "Biblioteca" && (
+          <LibrarySection
+            project={selectedProject}
+            previews={previews}
+            assetNames={assetNames}
+            videos={videos}
+            busy={busy}
+            onUpload={onUpload}
+            onUploadMany={onUploadMany}
+            onOpenProjects={() => setSection("Proyectos")}
+            onCreateVideo={() => setSection("Crear video")}
+          />
         )}
 
         {section === "Proyectos" && <ProjectList projects={projects} onOpen={openProject} onDuplicate={duplicateProject} onDelete={deleteProject} busy={busy} />}
@@ -1835,6 +1899,73 @@ export default function Home() {
           onSave={() => void saveBrand()}
         />
       ) : null}
+    </div>
+  );
+}
+
+function LibrarySection({
+  project,
+  previews,
+  assetNames,
+  videos,
+  busy,
+  onUpload,
+  onUploadMany,
+  onOpenProjects,
+  onCreateVideo
+}: {
+  project?: Project;
+  previews: Record<string, string>;
+  assetNames: Record<string, string>;
+  videos: RenderJob[];
+  busy: string | null;
+  onUpload: (type: AssetType, file?: File) => void;
+  onUploadMany: (files?: FileList | File[], startType?: AssetType) => void;
+  onOpenProjects: () => void;
+  onCreateVideo: () => void;
+}) {
+  const projectVideos = project ? videos.filter((video) => video.projectId === project.id) : videos;
+  return (
+    <div className="libraryGrid">
+      <section className="card libraryPanel">
+        <div className="sectionHeader">
+          <div>
+            <strong>Biblioteca de medios</strong>
+            <p className="muted">{project ? `Proyecto abierto: ${project.name}` : "Abre un proyecto para ver y subir imágenes o grabaciones."}</p>
+          </div>
+          <div className="rowActions">
+            <button className="secondary" type="button" onClick={onOpenProjects}><FolderKanban size={16} />Proyectos</button>
+            <button className="primary" type="button" onClick={onCreateVideo}><Clapperboard size={16} />Crear video</button>
+          </div>
+        </div>
+        {project ? (
+          <>
+            <AssetsStep previews={previews} assetNames={assetNames} project={project} busy={busy} onUpload={onUpload} onUploadMany={onUploadMany} />
+            <div className="assetLibrary">
+              {(project.assets ?? []).length === 0 ? <p className="muted">Aún no hay archivos en este proyecto.</p> : null}
+              {(project.assets ?? []).map((asset) => {
+                const isVideo = asset.mimeType?.startsWith("video/");
+                return (
+                  <div className="assetLibraryItem" key={asset.id}>
+                    <div className="assetLibraryPreview">
+                      <ProjectMediaPreview projectId={project.id} assetId={asset.id} isVideo={Boolean(isVideo)} filename={asset.filename} />
+                    </div>
+                    <strong>{asset.filename}</strong>
+                    <small>{asset.type} · {asset.mimeType}</small>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">
+            <Archive size={40} />
+            <p>Selecciona un proyecto para administrar su biblioteca.</p>
+            <button className="primary" type="button" onClick={onOpenProjects}>Abrir proyectos</button>
+          </div>
+        )}
+      </section>
+      <VideoList videos={projectVideos} />
     </div>
   );
 }
@@ -2043,6 +2174,7 @@ function StoryboardStep({
   project,
   busy,
   previewUrl,
+  previewState,
   onAddScene,
   onDuplicateScene,
   onDeleteScene,
@@ -2058,6 +2190,7 @@ function StoryboardStep({
   project?: Project;
   busy: string | null;
   previewUrl: string;
+  previewState: TrainingPreviewState;
   onAddScene: () => void;
   onDuplicateScene: (sceneId: string) => void;
   onDeleteScene: (sceneId: string) => void;
@@ -2075,6 +2208,7 @@ function StoryboardStep({
   const [openSection, setOpenSection] = useState<"content" | "highlight" | "narration" | "subtitles" | "advanced">("content");
   const [activeTool, setActiveTool] = useState<"zoom" | "highlight" | "arrow" | "circle" | "click" | "blur" | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
+  const [previewPlaybackError, setPreviewPlaybackError] = useState("");
   const selected = scenes.find((scene) => scene.id === selectedId) ?? scenes[0];
   const chapters = Array.from(new Set(scenes.map((scene) => scene.chapter).filter(Boolean))) as string[];
   const selectedAsset = (project?.assets ?? []).find((asset) => asset.id === selected?.mediaAssetId || asset.type === selected?.mediaAssetId);
@@ -2084,6 +2218,11 @@ function StoryboardStep({
   const narrationSeconds = estimateSpeechSeconds(selected?.narrationScript ?? "");
   const isCourse = project?.videoType === "COURSE";
   const hasScenes = scenes.length > 0;
+  const fullPreviewBusy = busy === "full-preview";
+  const selectedChapterBusy = selected?.chapter ? busy === `chapter-preview-${selected.chapter}` : false;
+  useEffect(() => {
+    setPreviewPlaybackError("");
+  }, [previewUrl]);
   function patchSelected(patch: Partial<StoryScene>) {
     if (selected) onUpdateScene(selected.id, patch);
   }
@@ -2162,7 +2301,7 @@ function StoryboardStep({
           <strong>Construye tu video paso a paso.</strong>
           <p className="muted">Agrega capturas o grabaciones y luego destaca, explica y organiza cada paso.</p>
         </div>
-        <button className="primary" type="button" disabled={!project || !hasScenes || busy === "chapter-preview"} onClick={onPreviewFull}><Play size={16} />Vista previa completa</button>
+        <button className="primary" type="button" disabled={!project || !hasScenes || fullPreviewBusy} onClick={onPreviewFull}>{fullPreviewBusy ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{fullPreviewBusy ? "Generando..." : "Vista previa completa"}</button>
       </div>
       {emptyEditor ? (
         <div
@@ -2237,11 +2376,11 @@ function StoryboardStep({
               void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewUrl ? <video controls src={previewUrl} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
-            <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}><Play size={16} />Ver paso</button>
-            {selected?.chapter ? <button className="secondary" type="button" onClick={() => onPreviewChapter(selected.chapter!)}><Play size={16} />Ver capítulo</button> : null}
+            <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}>{busy === `scene-preview-${selected?.id}` ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{busy === `scene-preview-${selected?.id}` ? "Generando..." : "Ver paso"}</button>
+            {selected?.chapter ? <button className="secondary" type="button" disabled={selectedChapterBusy} onClick={() => onPreviewChapter(selected.chapter!)}>{selectedChapterBusy ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{selectedChapterBusy ? "Generando..." : "Ver capítulo"}</button> : null}
             {isVideoMedia ? <span>{formatSeconds(selected.trimStartSeconds ?? 0)} / {formatSeconds(selectedAsset?.durationSeconds ?? selected.duration)}</span> : null}
           </div>
         </div>
@@ -2375,6 +2514,17 @@ function assetSceneType(asset?: Project["assets"][number]) {
   return asset.mimeType?.startsWith("video/") ? "SCREEN_RECORDING" : "IMAGE";
 }
 
+function PreviewStatus({ state }: { state: TrainingPreviewState }) {
+  const isLoading = state.status === "loading";
+  return (
+    <div className={`previewStatus ${state.status}`}>
+      {isLoading ? <Loader2 className="spinIcon" size={38} /> : <ImageIcon size={38} />}
+      <p>{isLoading ? "Preparando vista previa..." : "No se pudo mostrar la vista previa"}</p>
+      <small>{state.message || (isLoading ? "Estamos renderizando el video con el contenido seleccionado." : "Revisa los medios del proyecto e inténtalo otra vez.")}</small>
+    </div>
+  );
+}
+
 function ProjectMediaPreview({ projectId, assetId, isVideo, filename }: { projectId: string; assetId: string; isVideo: boolean; filename: string }) {
   const [source, setSource] = useState("");
   const [failed, setFailed] = useState(false);
@@ -2414,7 +2564,7 @@ function ProjectMediaPreview({ projectId, assetId, isVideo, filename }: { projec
   }, [projectId, assetId]);
 
   if (failed) return <div className="emptyState"><ImageIcon size={34} /><p>No se pudo cargar el medio asociado.</p><small>{filename}</small></div>;
-  if (!source) return <div className="emptyState"><ImageIcon size={34} /><p>Cargando medio...</p><small>{filename}</small></div>;
+  if (!source) return <div className="emptyState"><Loader2 className="spinIcon" size={34} /><p>Cargando medio...</p><small>{filename}</small></div>;
   return isVideo ? <video controls src={source} /> : <img src={source} alt={filename} />;
 }
 
@@ -3063,8 +3213,22 @@ async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
   }
   const { skipAuth, ...requestInit } = init ?? {};
   const response = await fetch(url, { ...requestInit, headers });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
   return response.json() as Promise<T>;
+}
+
+async function responseErrorMessage(response: Response) {
+  const text = await response.text();
+  if (!text.trim()) return `Solicitud falló con HTTP ${response.status}.`;
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown; error?: unknown; statusCode?: unknown };
+    if (Array.isArray(parsed.message)) return parsed.message.join(" ");
+    if (typeof parsed.message === "string") return parsed.message;
+    if (typeof parsed.error === "string") return parsed.error;
+  } catch {
+    return text;
+  }
+  return text;
 }
 
 async function uploadProjectAsset(projectId: string, type: AssetType, file: File) {
@@ -3160,6 +3324,7 @@ function minutesUntil(value?: string) {
 function sectionSubtitle(section: Section) {
   if (section === "Dashboard") return "Actividad reciente del estudio.";
   if (section === "Crear video") return "Configura, edita y exporta.";
+  if (section === "Biblioteca") return "Medios del proyecto y videos generados.";
   if (section === "Proyectos") return "Borradores y trabajos guardados.";
   if (section === "Videos") return "Renders listos para revisar.";
   if (section === "Marcas") return "Perfiles visuales reutilizables.";

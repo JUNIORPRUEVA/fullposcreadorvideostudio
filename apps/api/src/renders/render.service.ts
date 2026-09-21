@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { renderFullPosVideo, renderHybridMobilePreview, renderProfessionalCoursePreview, renderQuickTutorialPreview } from "@fullpos-ad-studio/video";
 import type { AssetType, RenderPayload } from "@fullpos-ad-studio/shared";
 import { mkdir, rename } from "node:fs/promises";
@@ -172,31 +172,44 @@ export class RenderService {
   }
 
   async renderQuickTutorialPreview(body: Record<string, unknown>) {
-    const payload = await this.previewPayload(body, "QUICK_TUTORIAL");
-    const outputPath = await renderQuickTutorialPreview(payload, {
-      renderId: "quick-tutorial-preview",
-      outputRoot: rendersRoot
-    });
-    return { id: "quick-tutorial-preview", outputPath, streamUrl: "/renders/preview/quick-tutorial-preview/stream" };
+    const workspace = await this.disk.createRenderWorkspace(1);
+    try {
+      const payload = await this.previewPayload(body, "QUICK_TUTORIAL", workspace.dir);
+      const outputPath = await renderQuickTutorialPreview(payload, {
+        renderId: "quick-tutorial-preview",
+        outputRoot: rendersRoot
+      });
+      return { id: "quick-tutorial-preview", outputPath, streamUrl: "/renders/preview/quick-tutorial-preview/stream" };
+    } finally {
+      await workspace.release();
+    }
   }
 
   async renderCourseScenePreview(body: Record<string, unknown>) {
-    const payload = await this.previewPayload(body, "COURSE");
-    const outputPath = await renderProfessionalCoursePreview(payload, {
-      renderId: "professional-course-scene-preview",
-      outputRoot: rendersRoot
-    });
-    return { id: "professional-course-scene-preview", outputPath, streamUrl: "/renders/preview/professional-course-scene-preview/stream" };
+    const workspace = await this.disk.createRenderWorkspace(1);
+    try {
+      const payload = await this.previewPayload(body, "COURSE", workspace.dir);
+      const outputPath = await renderProfessionalCoursePreview(payload, {
+        renderId: "professional-course-scene-preview",
+        outputRoot: rendersRoot
+      });
+      return { id: "professional-course-scene-preview", outputPath, streamUrl: "/renders/preview/professional-course-scene-preview/stream" };
+    } finally {
+      await workspace.release();
+    }
   }
 
-  private async previewPayload(body: Record<string, unknown>, videoType: "QUICK_TUTORIAL" | "COURSE"): Promise<RenderPayload> {
+  private async previewPayload(body: Record<string, unknown>, videoType: "QUICK_TUTORIAL" | "COURSE", workspaceDir?: string): Promise<RenderPayload> {
     const projectId = typeof body.projectId === "string" ? body.projectId : undefined;
     const project = projectId ? await this.prisma.project.findUnique({ where: { id: projectId }, include: { assets: true, scenes: { orderBy: { order: "asc" } }, brandProfile: true } }) : null;
+    if (projectId && !project) throw new NotFoundException("No se encontró el proyecto para generar la vista previa.");
     const brand = project?.brandProfile ?? await this.prisma.brandProfile.findFirst({ where: { isDefault: true, archived: false } });
-    const assets: Partial<Record<AssetType, string>> = {};
-    for (const asset of project?.assets ?? []) {
-      assets[asset.type as AssetType] = asset.path;
-      (assets as Record<string, string>)[asset.id] = asset.path;
+    const assets: Partial<Record<AssetType, string>> = workspaceDir && project ? await this.localizeAssets(project.assets, workspaceDir) : {};
+    if (!workspaceDir) {
+      for (const asset of project?.assets ?? []) {
+        assets[asset.type as AssetType] = asset.path;
+        (assets as Record<string, string>)[asset.id] = asset.path;
+      }
     }
     const root = process.cwd();
     const demoRoot = path.join(root, "assets", "demo", "e2e");
@@ -207,6 +220,9 @@ export class RenderService {
       if (chapter) return scene.chapter === chapter || scene.title === chapter;
       return true;
     });
+    if (project && !selectedScenes.length) {
+      throw new BadRequestException(chapter ? `No hay pasos en el capítulo "${chapter}".` : "No hay pasos disponibles para previsualizar.");
+    }
     const scenesList = selectedScenes.map((scene) => sceneForPayload(scene)) as RenderPayload["scenesList"];
     const durationSeconds = Math.max(1, scenesList?.reduce((sum, scene) => sum + scene.duration, 0) ?? (videoType === "COURSE" ? 18 : 20));
     return {
