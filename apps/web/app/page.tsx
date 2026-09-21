@@ -574,6 +574,7 @@ export default function Home() {
   }
 
   function navigateTo(nextSection: Section) {
+    if (section === "Crear video" && nextSection !== "Crear video" && !validateCurrentStep(5)) return;
     setSection(nextSection);
     setMobileSidebarOpen(false);
   }
@@ -1608,10 +1609,41 @@ export default function Home() {
     if (draft.voiceoverEnabled && !draft.voiceoverScript.trim()) throw new Error("Activa voz en off solo si tienes un guion.");
   }
 
+  function validateCurrentStep(targetStep = step) {
+    try {
+      if (step <= 1 && targetStep > 1) {
+        if (!draft.brandProfileId) throw new Error("Selecciona una empresa o marca antes de continuar.");
+        if (!draft.videoType) throw new Error("Selecciona el tipo de video antes de continuar.");
+      }
+      if (step <= 2 && targetStep > 2) validateDraft();
+      if (step <= 3 && targetStep > 3) validateStoryboardReady();
+      if (step <= 4 && targetStep > 4 && draft.voiceoverEnabled && !draft.voiceoverScript.trim()) {
+        throw new Error("Completa el guion de voz o desactiva la voz antes de exportar.");
+      }
+      return true;
+    } catch (error) {
+      show("error", getErrorMessage(error));
+      return false;
+    }
+  }
+
+  function validateStoryboardReady() {
+    const scenes = selectedProject?.scenes ?? [];
+    if (!scenes.length) throw new Error("Agrega al menos un paso en Editar antes de continuar.");
+    const missingMedia = scenes.find((scene) => !scene.mediaAssetId);
+    if (missingMedia) throw new Error(`El paso "${missingMedia.title}" no tiene imagen o video asociado.`);
+  }
+
   function validateAssets() {
     const uploaded = new Set([...(selectedProject?.assets.map((asset) => asset.type) ?? []), ...Object.keys(previews)]);
     const missing = uploadFields.filter((field) => field.required && !uploaded.has(field.type)).map((field) => field.label);
     if (missing.length) throw new Error(`Faltan recursos para un video premium: ${missing.join(", ")}.`);
+  }
+
+  function goToStep(nextStep: number) {
+    if (nextStep === step) return;
+    if (nextStep > step && !validateCurrentStep(nextStep)) return;
+    setStep(nextStep);
   }
 
   function show(type: string, text: string) {
@@ -1730,15 +1762,23 @@ export default function Home() {
                   <strong>{draft.name}</strong>
                   <span>{draft.productName} · {videoTypeLabel(draft.videoType)} · {draft.format}</span>
                 </div>
-                <div className={`renderPill ${latestJob?.status === "COMPLETED" ? "ready" : ""}`}>
-                  <span>{latestJob ? renderStage(latestJob) : "Sin preview"}</span>
-                  {latestJob ? <small>{latestJob.progress}%</small> : null}
-                  {streamUrl ? <a href={streamUrl} target="_blank">Ver</a> : null}
+                <div className="editorHeaderActions">
+                  {step === 3 ? (
+                    <button className="primary" type="button" disabled={!selectedProject || !(selectedProject.scenes?.length) || busy === "full-preview"} onClick={() => void previewTrainingScene()}>
+                      {busy === "full-preview" ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}
+                      {busy === "full-preview" ? "Generando..." : "Vista previa completa"}
+                    </button>
+                  ) : null}
+                  <div className={`renderPill ${latestJob?.status === "COMPLETED" ? "ready" : ""}`}>
+                    <span>{latestJob ? renderStage(latestJob) : "Sin preview"}</span>
+                    {latestJob ? <small>{latestJob.progress}%</small> : null}
+                    {streamUrl ? <a href={streamUrl} target="_blank">Ver</a> : null}
+                  </div>
                 </div>
               </div>
               <div className="steps">
                 {["Configuración", "Contenido", "Editar", "Voz y música", "Exportar"].map((label, index) => (
-                  <button key={label} type="button" className={`step ${step === index + 1 ? "active" : ""}`} onClick={() => setStep(index + 1)}>
+                  <button key={label} type="button" className={`step ${step === index + 1 ? "active" : ""}`} onClick={() => goToStep(index + 1)}>
                     {index + 1}. {label}
                   </button>
                 ))}
@@ -1825,9 +1865,9 @@ export default function Home() {
               )}
 
               <div className="actions">
-                <button className="secondary" type="button" disabled={step === 1} onClick={() => setStep((value) => Math.max(1, value - 1))}>Atrás</button>
+                <button className="secondary" type="button" disabled={step === 1} onClick={() => goToStep(Math.max(1, step - 1))}>Atrás</button>
                 {step > 1 ? <button className="secondary" type="button" onClick={() => void saveDraft()} disabled={busy !== null}><Save size={16} />Guardar borrador</button> : <span className="autosaveHint">Guardado automatico al continuar</span>}
-                <button className="primary" type="button" disabled={step === 5 || (step === 1 && (!draft.brandProfileId || !draft.videoType))} onClick={() => setStep((value) => Math.min(5, value + 1))}>{step === 1 ? "Continuar" : "Siguiente"}</button>
+                <button className="primary" type="button" disabled={step === 5 || (step === 1 && (!draft.brandProfileId || !draft.videoType))} onClick={() => goToStep(Math.min(5, step + 1))}>{step === 1 ? "Continuar" : "Siguiente"}</button>
               </div>
             </div>
 
@@ -2209,20 +2249,24 @@ function StoryboardStep({
   const [activeTool, setActiveTool] = useState<"zoom" | "highlight" | "arrow" | "circle" | "click" | "blur" | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
   const [previewPlaybackError, setPreviewPlaybackError] = useState("");
+  const [localMediaPreview, setLocalMediaPreview] = useState<{ sceneId: string; url: string; isVideo: boolean; filename: string } | null>(null);
   const selected = scenes.find((scene) => scene.id === selectedId) ?? scenes[0];
   const chapters = Array.from(new Set(scenes.map((scene) => scene.chapter).filter(Boolean))) as string[];
   const selectedAsset = (project?.assets ?? []).find((asset) => asset.id === selected?.mediaAssetId || asset.type === selected?.mediaAssetId);
+  const activeLocalPreview = localMediaPreview && selected?.id === localMediaPreview.sceneId ? localMediaPreview : null;
   const mediaUrl = project && selectedAsset ? `${API_URL}/projects/${project.id}/assets/${selectedAsset.id}/file` : "";
   const isVideoMedia = Boolean(selectedAsset?.mimeType?.startsWith("video/"));
   const selectedDuration = Math.max(0, (selected?.trimEndSeconds ?? selected?.duration ?? 0) - (selected?.trimStartSeconds ?? 0));
   const narrationSeconds = estimateSpeechSeconds(selected?.narrationScript ?? "");
   const isCourse = project?.videoType === "COURSE";
   const hasScenes = scenes.length > 0;
-  const fullPreviewBusy = busy === "full-preview";
   const selectedChapterBusy = selected?.chapter ? busy === `chapter-preview-${selected.chapter}` : false;
   useEffect(() => {
     setPreviewPlaybackError("");
   }, [previewUrl]);
+  useEffect(() => () => {
+    if (localMediaPreview?.url) URL.revokeObjectURL(localMediaPreview.url);
+  }, [localMediaPreview?.url]);
   function patchSelected(patch: Partial<StoryScene>) {
     if (selected) onUpdateScene(selected.id, patch);
   }
@@ -2235,6 +2279,15 @@ function StoryboardStep({
     if (!selected) {
       await addMediaFiles(files);
       return;
+    }
+    const file = Array.from(files ?? [])[0];
+    if (file) {
+      const nextUrl = URL.createObjectURL(file);
+      setLocalMediaPreview((current) => {
+        if (current?.url) URL.revokeObjectURL(current.url);
+        return { sceneId: selected.id, url: nextUrl, isVideo: file.type.startsWith("video/"), filename: file.name };
+      });
+      setPreviewPlaybackError("");
     }
     const updated = await onAssignSceneMedia(selected.id, files);
     if (updated) setSelectedId(selected.id);
@@ -2301,7 +2354,6 @@ function StoryboardStep({
           <strong>Construye tu video paso a paso.</strong>
           <p className="muted">Agrega capturas o grabaciones y luego destaca, explica y organiza cada paso.</p>
         </div>
-        <button className="primary" type="button" disabled={!project || !hasScenes || fullPreviewBusy} onClick={onPreviewFull}>{fullPreviewBusy ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{fullPreviewBusy ? "Generando..." : "Vista previa completa"}</button>
       </div>
       {emptyEditor ? (
         <div
@@ -2364,7 +2416,7 @@ function StoryboardStep({
           </div> : null}
         </div>
         <div className="previewColumn">
-          <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : selectedAsset?.filename ?? "Selecciona o sube un medio"}</small></div>
+          <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : activeLocalPreview?.filename ?? selectedAsset?.filename ?? "Selecciona o sube un medio"}</small></div>
           <div
             className={`trainingPreview directPreview ${activeTool ? "isTargeting" : ""}`}
             onClick={onPreviewClick}
@@ -2376,7 +2428,7 @@ function StoryboardStep({
               void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} /> : activeLocalPreview ? activeLocalPreview.isVideo ? <video controls src={activeLocalPreview.url} /> : <img src={activeLocalPreview.url} alt={activeLocalPreview.filename} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}>{busy === `scene-preview-${selected?.id}` ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{busy === `scene-preview-${selected?.id}` ? "Generando..." : "Ver paso"}</button>

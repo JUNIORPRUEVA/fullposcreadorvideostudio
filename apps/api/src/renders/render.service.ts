@@ -180,6 +180,8 @@ export class RenderService {
         outputRoot: rendersRoot
       });
       return { id: "quick-tutorial-preview", outputPath, streamUrl: "/renders/preview/quick-tutorial-preview/stream" };
+    } catch (error) {
+      throw new BadRequestException(`No se pudo generar la vista previa: ${error instanceof Error ? error.message : "error desconocido"}.`);
     } finally {
       await workspace.release();
     }
@@ -194,6 +196,8 @@ export class RenderService {
         outputRoot: rendersRoot
       });
       return { id: "professional-course-scene-preview", outputPath, streamUrl: "/renders/preview/professional-course-scene-preview/stream" };
+    } catch (error) {
+      throw new BadRequestException(`No se pudo generar la vista previa: ${error instanceof Error ? error.message : "error desconocido"}.`);
     } finally {
       await workspace.release();
     }
