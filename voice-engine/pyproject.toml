@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fullpos-voice-engine"
+version = "0.1.0"
+description = "Motor TTS local (Kokoro-82M) para FullPOS Voice Studio. Solo escucha en localhost."
+requires-python = ">=3.10,<3.13"
+# Las dependencias reales viven en requirements.txt / requirements-dev.txt porque torch
+# se resuelve contra el indice CPU de PyTorch y eso no lo puede expresar PEP 621.
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["voice_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Permite `import voice_engine` sin instalar el paquete en el entorno.
+pythonpath = ["."]
+addopts = "-q"

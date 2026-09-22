@@ -1,0 +1,23 @@
+# FullPOS Voice Studio — motor TTS local (Fase 1).
+#
+# Interprete objetivo: CPython 3.12 (kokoro exige >=3.10,<3.13; torch y onnxruntime
+# no publican ruedas para 3.13+ en Windows en el momento de fijar esto).
+#
+# NOTA: torch NO se instala desde este archivo. El instalador lo pone aparte desde el
+# indice CPU de PyTorch (https://download.pytorch.org/whl/cpu) para evitar descargar
+# la distribucion CUDA completa (~2.5 GB). Ver scripts/voice/voice-setup.ps1.
+
+# Motor TTS. Kokoro-82M (Apache-2.0), voces espanolas ef_dora / em_alex / em_santa.
+kokoro==0.9.4
+
+# E/S de audio. soundfile trae libsndfile en la rueda (no requiere DLL externa).
+soundfile>=0.13,<1.0
+numpy>=1.26,<3.0
+
+# Servicio HTTP local.
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+
+# espeak-ng como rueda: evita el MSI del sistema y no requiere permisos de admin.
+# Kokoro lo necesita para la fonetizacion del espanol (lang_code='e').
+espeakng-loader==0.2.4

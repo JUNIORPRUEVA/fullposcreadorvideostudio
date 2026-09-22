@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Pruebas del motor. TestClient de FastAPI necesita httpx.
+pytest>=8.0,<10.0
+httpx>=0.27,<1.0

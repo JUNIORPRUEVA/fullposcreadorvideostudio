@@ -28,3 +28,12 @@ apps/api/prisma/dev.db-journal
 apps/api/prisma/dev.backup-*.db
 apps/api/prisma/dev.before-cloud-migration-*.db
 apps/api/prisma/storage/
+
+# FullPOS Voice Studio (Fase 1): narraciones generadas y entorno Python local.
+# Los pesos del modelo no viven aqui: los cachea huggingface_hub en el perfil de usuario.
+storage/generated-audio/*
+!storage/generated-audio/.gitkeep
+voice-engine/.venv/
+__pycache__/
+*.pyc
+voice-engine/.pytest_cache/

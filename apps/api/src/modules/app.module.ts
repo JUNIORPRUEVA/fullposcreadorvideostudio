@@ -7,6 +7,9 @@ import { RenderService } from "../renders/render.service.js";
 import { AudioService } from "../audio/audio.service.js";
 import { AudioController } from "../audio/audio.controller.js";
 import { VoiceGenerationService } from "../audio/voice-generation.service.js";
+import { VoiceController } from "../voice/voice.controller.js";
+import { VoiceService } from "../voice/voice.service.js";
+import { VoiceEngineClient } from "../voice/voice-engine.client.js";
 import { SettingsController } from "../settings/settings.controller.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AiVideoController } from "../ai-video/ai-video.controller.js";
@@ -26,7 +29,7 @@ import { R2StorageService } from "../storage/r2-storage.service.js";
 import { DiskGuardService } from "../storage/disk-guard.service.js";
 
 @Module({
-  controllers: [HealthController, AuthController, ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController],
-  providers: [PrismaService, AuthService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService, R2StorageService, DiskGuardService]
+  controllers: [HealthController, AuthController, ProjectsController, RendersController, SettingsController, AudioController, AiVideoController, VideoStudioController, BrandsController, VoiceController],
+  providers: [PrismaService, AuthService, ProjectsService, RenderService, AudioService, VoiceGenerationService, SettingsService, AiVideoService, AiAssetGatewayService, TemporaryTunnelAiAssetTransport, R2SignedUrlAiAssetTransport, CompositeAiAssetTransport, RunpodPublicVideoProvider, BrandsService, R2StorageService, DiskGuardService, VoiceService, VoiceEngineClient]
 })
 export class AppModule {}
