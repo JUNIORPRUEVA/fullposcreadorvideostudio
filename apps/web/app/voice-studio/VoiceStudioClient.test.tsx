@@ -31,7 +31,9 @@ const GENERATION: VoiceGenerationView = {
   textWords: 20,
   audioUrl: "/voice/files/2026-09-22/ef_dora-abc12345.wav?sig=x&exp=1",
   downloadUrl: "/voice/files/2026-09-22/ef_dora-abc12345.wav?sig=x&exp=1&download=1",
-  masterUrl: null
+  masterUrl: null,
+  folder: "2026-09-22",
+  savedIn: "storage/generated-audio/2026-09-22"
 };
 
 test("la pagina renderiza titulo, subtitulo y el guion", () => {
@@ -70,6 +72,8 @@ test("el estado inicial avisa de que se esta comprobando el motor", () => {
   const html = renderToStaticMarkup(<VoiceStudioClient apiUrl={API_URL} />);
   assert.match(html, /Comprobando el motor de voz/);
   assert.match(html, /voice-generate/);
+  assert.match(html, /voice-open-folder-root/);
+  assert.match(html, /Abrir carpeta de audios/);
   assert.match(html, /npm run voice:dev/);
 });
 
@@ -81,6 +85,7 @@ test("el estado de generacion se muestra al usuario", () => {
 
 test("el resultado renderiza el reproductor y los datos finales", () => {
   const html = renderToStaticMarkup(<VoiceStudioResult generation={GENERATION} apiUrl={API_URL} />);
+  assert.match(html, /Narracion generada/);
   assert.match(html, /data-testid="voice-player"/);
   assert.match(html, /<audio/);
   assert.match(html, new RegExp(`${API_URL}/voice/files/2026-09-22/ef_dora-abc12345\\.wav\\?sig=x&amp;exp=1`));
@@ -88,9 +93,37 @@ test("el resultado renderiza el reproductor y los datos finales", () => {
   assert.match(html, /4\.2 s/);
   assert.match(html, /197 KB/);
   assert.match(html, /WAV/);
+  assert.match(html, /ef_dora-abc12345\.wav/);
   assert.match(html, /data-testid="voice-download"/);
   assert.match(html, /download=/);
-  assert.match(html, /ef_dora-abc12345\.wav/);
+});
+
+test("el resultado muestra donde quedo el archivo y permite abrir la carpeta", () => {
+  const opened: Array<string | null> = [];
+  const html = renderToStaticMarkup(
+    <VoiceStudioResult
+      generation={GENERATION}
+      apiUrl={API_URL}
+      onOpenFolder={(folder) => opened.push(folder)}
+    />
+  );
+  // Ruta relativa, nunca absoluta.
+  assert.match(html, /Guardado localmente en:/);
+  assert.match(html, /data-testid="voice-saved-in">storage\/generated-audio\/2026-09-22\//);
+  assert.doesNotMatch(html, /C:\\\\/);
+  // Botones pedidos: reproducir, descargar y abrir carpeta.
+  assert.match(html, /data-testid="voice-play"/);
+  assert.match(html, /Reproducir/);
+  assert.match(html, /data-testid="voice-download"/);
+  assert.match(html, /data-testid="voice-open-folder"/);
+  assert.match(html, /Abrir carpeta/);
+});
+
+test("el resultado tambien ofrece el WAV maestro cuando el formato es MP3", () => {
+  const html = renderToStaticMarkup(
+    <VoiceStudioResult generation={{ ...GENERATION, format: "mp3", masterUrl: "/voice/files/2026-09-22/ef_dora-abc12345.wav?sig=x&exp=1" }} apiUrl={API_URL} />
+  );
+  assert.match(html, /WAV maestro/);
 });
 
 test("el error es visible y accesible", () => {

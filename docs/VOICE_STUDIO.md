@@ -140,8 +140,14 @@ En el estudio principal hay un acceso **Voice Studio** al final de la barra late
 
 1. Pega el guion completo (no hay límite de 500 caracteres; el tope local es 100 000).
 2. Pulsa **Generar narración**.
-3. Al terminar verás el reproductor, la voz, la duración, el tamaño, el formato y los
-   fragmentos usados, más los botones de descarga.
+3. Al terminar verás el reproductor, la voz, la duración, el tamaño, el formato, el nombre
+   del archivo, la carpeta donde quedó y los botones **Reproducir**, **Descargar** y
+   **Abrir carpeta** (esta última abre la carpeta en el Explorador de Windows).
+
+> La página scrollea como cualquier web: rueda, `PageDown`/`PageUp`, `Inicio`/`Fin` y barra
+del navegador. El estudio fija `html/body` (`overflow: hidden`) porque su app scrollea
+dentro de `.main`; Voice Studio lo revierte **solo para esta ruta** con `:has()` y deja un
+respaldo por si el navegador no soporta `:has()` (ahí scrollea el propio contenedor).
 
 El motor divide el guion por **párrafos** y, si un párrafo es muy largo, por **oraciones**
 (agrupándolas hasta ~400 caracteres, nunca cortando palabras). Cada fragmento se narra por
@@ -203,8 +209,15 @@ Estudio (`apps/api`, la única ruta que usa el navegador):
 | GET | `/voice/voices` | Voces + voz FullPOS guardada |
 | POST | `/voice/preview` | Prueba de voz (URL firmada) |
 | POST | `/voice/generate` | Narración (URL firmada + metadatos) |
+| POST | `/voice/open-folder` | Abre en el Explorador de Windows la carpeta de audios |
 | GET/PUT | `/voice/voice-preference` | Leer/guardar la Voz FullPOS |
 | GET | `/voice/files/:carpeta/:archivo` | Reproductor/descarga (URL firmada, `?download=1`) |
+
+`/voice/open-folder` acepta como máximo el **nombre** de una carpeta conocida
+(`{"folder":"2026-09-22"}`, `{"folder":"previews"}`) o nada para abrir la raíz de
+audios. El navegador nunca envía una ruta: el backend la resuelve dentro de
+`storage/generated-audio`, rechaza cualquier otra cosa con `400` y lanza `explorer.exe`
+sin shell. En sistemas que no son Windows responde `503` explicando que es una función local.
 
 > El repositorio no usa prefijo `/api` en el backend; por eso las rutas son `/voice/...`
 > y no `/api/voice/...`. El prefijo público lo decide el despliegue.
@@ -244,6 +257,7 @@ motor apagado, token opcional y ausencia de trazas.
 | El puerto 4310 está ocupado | `npm run voice:dev -- -Port 4311` y `VOICE_ENGINE_URL=http://127.0.0.1:4311` en el API. |
 | «No se pudo guardar la voz FullPOS» | La base de datos no responde (túnel SSH). Se guarda en el navegador; el resto sigue funcionando. |
 | El audio no suena en la página | El token del estudio cambió: recarga y vuelve a entrar. Las URLs firmadas caducan en 15 minutos. |
+| «Abrir carpeta» no hace nada / da error | Es una función local de Windows (el servidor abre el Explorador). En otros sistemas responde 503 explicándolo; desde otra máquina no aplica. |
 
 ---
 

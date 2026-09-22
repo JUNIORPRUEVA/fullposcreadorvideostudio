@@ -150,6 +150,9 @@ test("generate devuelve URLs firmables y el nombre de la voz", async () => {
   assert.equal(generation.chunks, 1);
   assert.equal(generation.format, "wav");
   assert.equal(generation.masterUrl, null);
+  // Ubicacion para la interfaz: relativa, nunca absoluta.
+  assert.equal(generation.folder, "2026-09-22");
+  assert.equal(generation.savedIn, "storage/generated-audio/2026-09-22");
 });
 
 test("generate expone el WAV maestro cuando el formato es MP3", async () => {
@@ -281,6 +284,74 @@ test("resolveAudioFile valida rutas y sirve solo dentro de generated-audio", () 
   assert.throws(() => service_.resolveAudioFile(probeFolder, "..%5c..%5cpackage.json"), BadRequestException);
   assert.throws(() => service_.resolveAudioFile(probeFolder, "notas.txt"), BadRequestException);
   assert.throws(() => service_.resolveAudioFile(probeFolder, "ef_dora-abc12345.mp3"), NotFoundException);
+});
+
+// ------------------------------------------------------- abrir carpeta
+
+function spyService() {
+  const target = service(fakeEngine(), fakePrisma().prisma);
+  const opened: string[] = [];
+  target.setFolderLauncher((directory) => {
+    opened.push(directory);
+    return { launched: true, platform: "win32" };
+  });
+  return { target, opened };
+}
+
+const probeDateFolder = "2099-12-31";
+
+test("abrir carpeta sin argumentos abre la raiz de audios generados", async () => {
+  const { target, opened } = spyService();
+  const result = await target.openGeneratedAudioFolder({});
+  assert.deepEqual(result, { opened: true, folder: null, savedIn: "storage/generated-audio" });
+  assert.deepEqual(opened, [generatedAudioRoot]);
+});
+
+test("abrir carpeta de un dia concreto resuelve la ruta dentro de generated-audio", async () => {
+  const { target, opened } = spyService();
+  const directory = path.join(generatedAudioRoot, probeDateFolder);
+  mkdirSync(directory, { recursive: true });
+  try {
+    const result = await target.openGeneratedAudioFolder({ folder: probeDateFolder });
+    assert.equal(result.folder, probeDateFolder);
+    assert.equal(result.savedIn, `storage/generated-audio/${probeDateFolder}`);
+    assert.deepEqual(opened, [directory]);
+    assert.ok(opened[0].startsWith(generatedAudioRoot));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("una ruta arbitraria se rechaza ANTES de lanzar ningun proceso", async () => {
+  const { target, opened } = spyService();
+  const attacks = ["../../../Windows", "..\\..\\Windows", "C:\\Windows\\System32", "/etc/passwd", "previews/../.."];
+  for (const folder of attacks) {
+    await assert.rejects(
+      () => target.openGeneratedAudioFolder({ folder }),
+      BadRequestException,
+      `deberia rechazar ${folder}`
+    );
+  }
+  assert.deepEqual(opened, [], "no se puede abrir nada con una ruta del navegador");
+});
+
+test("una carpeta inexistente no lanza el explorador", async () => {
+  const { target, opened } = spyService();
+  await assert.rejects(() => target.openGeneratedAudioFolder({ folder: "1999-01-01" }), NotFoundException);
+  assert.deepEqual(opened, []);
+});
+
+test("si el sistema no puede abrir el explorador se informa con 503", async () => {
+  const target = service(fakeEngine(), fakePrisma().prisma);
+  target.setFolderLauncher(() => ({ launched: false, platform: "linux", reason: "Solo Windows." }));
+  await assert.rejects(
+    () => target.openGeneratedAudioFolder({}),
+    (error: unknown) => {
+      assert.ok(error instanceof ServiceUnavailableException);
+      assert.match(error.message, /Solo Windows/);
+      return true;
+    }
+  );
 });
 
 // ------------------------------------------------------- voz FullPOS

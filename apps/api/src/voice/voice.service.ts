@@ -3,11 +3,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { assertInside, generatedAudioRoot } from "../lib/paths.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { openInExplorer, resolveGeneratedAudioFolder, type OpenResult } from "./open-folder.js";
 import { VoiceEngineClient, VoiceEngineError, type EngineSynthesisResult, type EngineVoiceList } from "./voice-engine.client.js";
 import type {
   VoiceGeneration,
   VoiceGenerationRequest,
   VoiceHealthReport,
+  VoiceOpenFolderResult,
   VoiceOption,
   VoicePreference
 } from "./voice.types.js";
@@ -43,11 +45,18 @@ const DEFAULT_PREFERENCE: Omit<VoicePreference, "persisted"> = {
 @Injectable()
 export class VoiceService {
   private voicesCache: { at: number; data: EngineVoiceList } | null = null;
+  /** Abrir la carpeta lanza un proceso: se deja sustituible para las pruebas. */
+  private launcher: (directory: string) => OpenResult = openInExplorer;
 
   constructor(
     @Inject(VoiceEngineClient) private readonly engine: VoiceEngineClient,
     @Inject(PrismaService) private readonly prisma: PrismaService
   ) {}
+
+  /** Solo para pruebas: observa que carpeta se habria abierto. */
+  setFolderLauncher(launcher: (directory: string) => OpenResult) {
+    this.launcher = launcher;
+  }
 
   get engineUrl() {
     return this.engine.url;
@@ -134,6 +143,28 @@ export class VoiceService {
       contentType: name.toLowerCase().endsWith(".mp3") ? "audio/mpeg" : "audio/wav",
       downloadName: name
     };
+  }
+
+  /**
+   * Abre en el explorador de Windows la carpeta de audios generados.
+   *
+   * El cuerpo solo puede decir QUE carpeta conocida (una fecha o "previews"), nunca
+   * una ruta: la resolucion se hace aqui, dentro de storage/generated-audio.
+   */
+  async openGeneratedAudioFolder(body: Record<string, unknown>): Promise<VoiceOpenFolderResult> {
+    const resolution = resolveGeneratedAudioFolder(body?.folder);
+    if (!resolution.ok) {
+      throw resolution.reason === "invalid"
+        ? new BadRequestException(resolution.message)
+        : new NotFoundException(resolution.message);
+    }
+    const opened = this.launcher(resolution.directory);
+    if (!opened.launched) {
+      throw new ServiceUnavailableException(
+        opened.reason ?? "No se pudo abrir la carpeta en el explorador de Windows."
+      );
+    }
+    return { opened: true, folder: resolution.folder, savedIn: resolution.relative };
   }
 
   async getPreference(): Promise<VoicePreference> {
@@ -225,7 +256,9 @@ export class VoiceService {
       textWords: result.textWords,
       audioUrl: audioPath,
       downloadUrl: `${audioPath}?download=1`,
-      masterUrl: masterFolder && masterName ? `/voice/files/${masterFolder}/${masterName}` : null
+      masterUrl: masterFolder && masterName ? `/voice/files/${masterFolder}/${masterName}` : null,
+      folder,
+      savedIn: `storage/generated-audio/${folder}`
     };
   }
 

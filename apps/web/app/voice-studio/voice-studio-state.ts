@@ -52,6 +52,10 @@ export type VoiceGenerationView = {
   audioUrl: string;
   downloadUrl: string;
   masterUrl: string | null;
+  /** Carpeta del dia donde quedo el archivo (null si no se pudo determinar). */
+  folder: string | null;
+  /** Ruta relativa para mostrar (nunca absoluta). */
+  savedIn: string;
 };
 
 export type VoiceHealthView = {
@@ -207,6 +211,28 @@ export function readRememberedVoice(raw: string | null): { voiceId: string; voic
 
 // ----------------------------------------------------------------- parseo
 
+/** Carpeta del dia a partir de la URL servida por el API (/voice/files/<carpeta>/<archivo>). */
+export function folderFromAudioUrl(audioUrl: string): string | null {
+  const match = /\/voice\/files\/([a-z0-9-]{1,32})\//i.exec(audioUrl ?? "");
+  return match ? match[1] : null;
+}
+
+/** Texto que se muestra al usuario: relativo y con barra final. */
+export function savedInLabel(generation: Pick<VoiceGenerationView, "savedIn" | "folder">): string {
+  const base =
+    generation.savedIn ||
+    (generation.folder ? `storage/generated-audio/${generation.folder}` : "storage/generated-audio");
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
+/**
+ * Cuerpo de POST /voice/open-folder. Solo viaja el NOMBRE de la carpeta (o nada para
+ * la raiz): el backend resuelve la ruta, el navegador nunca manda una.
+ */
+export function buildOpenFolderPayload(folder: string | null | undefined): { folder?: string } {
+  return folder ? { folder } : {};
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -270,6 +296,7 @@ export function parseGeneration(payload: unknown): VoiceGenerationView | null {
   const id = readString(record, "id");
   const audioUrl = readString(record, "audioUrl");
   if (!id || !audioUrl) return null;
+  const folder = readString(record, "folder") || folderFromAudioUrl(audioUrl);
   return {
     id,
     fileName: readString(record, "fileName") || `${id}.wav`,
@@ -288,7 +315,9 @@ export function parseGeneration(payload: unknown): VoiceGenerationView | null {
     textWords: readNumber(record, "textWords"),
     audioUrl,
     downloadUrl: readString(record, "downloadUrl") || audioUrl,
-    masterUrl: typeof record.masterUrl === "string" && record.masterUrl ? record.masterUrl : null
+    masterUrl: typeof record.masterUrl === "string" && record.masterUrl ? record.masterUrl : null,
+    folder,
+    savedIn: readString(record, "savedIn") || (folder ? `storage/generated-audio/${folder}` : "storage/generated-audio")
   };
 }
 
@@ -319,8 +348,7 @@ export function resultRows(generation: VoiceGenerationView): Array<{ label: stri
     { label: "Duracion", value: formatDuration(generation.durationSeconds) },
     { label: "Tamano", value: formatBytes(generation.bytes) },
     { label: "Formato", value: generation.format.toUpperCase() },
-    { label: "Velocidad", value: speedLabel(generation.speed) },
-    { label: "Fragmentos", value: formatCount(generation.chunks) }
+    { label: "Archivo", value: generation.fileName }
   ];
 }
 

@@ -56,6 +56,15 @@ export class VoiceController {
     return this.voice.getPreference();
   }
 
+  /**
+   * Abre la carpeta local de audios en el explorador de Windows.
+   * El navegador no manda rutas: solo puede pedir la raiz o una carpeta de fecha.
+   */
+  @Post("open-folder")
+  openFolder(@Body() body: Record<string, unknown>) {
+    return this.voice.openGeneratedAudioFolder(body ?? {});
+  }
+
   @Put("voice-preference")
   savePreference(@Body() body: Record<string, unknown>) {
     return this.voice.savePreference(body);

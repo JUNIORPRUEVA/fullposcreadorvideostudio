@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, Loader2, Mic, Play, RefreshCcw, Star, Volume2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FolderOpen, Loader2, Mic, Pause, Play, RefreshCcw, Star, Volume2 } from "lucide-react";
 import {
   DEFAULT_API_URL,
   DEFAULT_SETTINGS,
@@ -14,6 +14,7 @@ import {
   FULLPOS_VOICE_STORAGE_KEY,
   absoluteMediaUrl,
   buildGeneratePayload,
+  buildOpenFolderPayload,
   buildPreviewPayload,
   clampPause,
   clampSpeed,
@@ -33,6 +34,7 @@ import {
   rememberFullposVoice,
   resolveVoiceSelection,
   resultRows,
+  savedInLabel,
   speedLabel,
   voiceLabel,
   type VoiceGenerationView,
@@ -68,6 +70,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
   const [preview, setPreview] = useState<VoiceGenerationView | null>(null);
   const [savedVoiceId, setSavedVoiceId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   const counter = useMemo(() => countText(script), [script]);
   const engineReady = Boolean(health?.ok);
@@ -208,6 +211,27 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
     } catch (generationError) {
       setPhase("error");
       setError(generationError instanceof Error ? generationError.message : "No se pudo generar la narracion.");
+    }
+  }
+
+  /**
+   * Abre la carpeta en el explorador de Windows. El navegador no manda rutas: solo el
+   * nombre de la carpeta del dia (o nada, para la raiz de audios generados).
+   */
+  async function onOpenFolder(folder: string | null) {
+    setError(null);
+    setFolderBusy(true);
+    try {
+      const payload = await apiFetch("/voice/open-folder", {
+        method: "POST",
+        body: JSON.stringify(buildOpenFolderPayload(folder))
+      });
+      const savedIn = readSavedIn(payload);
+      setNotice(`Carpeta abierta en el explorador: ${savedIn || "storage/generated-audio"}`);
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "No se pudo abrir la carpeta.");
+    } finally {
+      setFolderBusy(false);
     }
   }
 
@@ -394,6 +418,16 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
           <button className="secondary" type="button" onClick={() => void loadHealth()} disabled={phase === "generating"}>
             <RefreshCcw size={16} /> Revisar motor
           </button>
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => void onOpenFolder(null)}
+            disabled={folderBusy || !engineReady}
+            data-testid="voice-open-folder-root"
+            title="Abrir storage/generated-audio en el explorador de Windows"
+          >
+            {folderBusy ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} />} Abrir carpeta de audios
+          </button>
         </div>
         <p className="fieldHint" data-testid="voice-phase">
           {phaseMessage(phase)}
@@ -405,9 +439,25 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
         ) : null}
       </section>
 
-      {generation ? <VoiceStudioResult generation={generation} apiUrl={apiUrl} /> : null}
+      {generation ? (
+        <VoiceStudioResult
+          generation={generation}
+          apiUrl={apiUrl}
+          onOpenFolder={onOpenFolder}
+          folderBusy={folderBusy}
+        />
+      ) : null}
     </main>
   );
+}
+
+/** Lee `savedIn` de la respuesta de /voice/open-folder sin confiar en su forma. */
+function readSavedIn(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null && "savedIn" in payload) {
+    const value = (payload as { savedIn?: unknown }).savedIn;
+    if (typeof value === "string") return value;
+  }
+  return "";
 }
 
 export function EngineStatusCard({
@@ -460,17 +510,46 @@ export function VoiceStudioError({ message }: { message: string }) {
   );
 }
 
-export function VoiceStudioResult({ generation, apiUrl }: { generation: VoiceGenerationView; apiUrl: string }) {
+export function VoiceStudioResult({
+  generation,
+  apiUrl,
+  onOpenFolder,
+  folderBusy = false
+}: {
+  generation: VoiceGenerationView;
+  apiUrl: string;
+  onOpenFolder?: (folder: string | null) => void;
+  folderBusy?: boolean;
+}) {
+  const playerRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
   const rows = resultRows(generation);
   const audioSrc = absoluteMediaUrl(apiUrl, generation.audioUrl);
   const downloadHref = absoluteMediaUrl(apiUrl, generation.downloadUrl);
+
+  function togglePlayback() {
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.paused) void player.play();
+    else player.pause();
+  }
+
   return (
     <section className="card voiceStudioResult" data-testid="voice-result">
       <div className="panelTitle">
         <strong>Narracion generada</strong>
         <small>{formatClock(generation.createdAt)}</small>
       </div>
-      <audio controls src={audioSrc} data-testid="voice-player" />
+      <audio
+        ref={playerRef}
+        controls
+        preload="metadata"
+        src={audioSrc}
+        data-testid="voice-player"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+      />
       <dl className="voiceStudioRows">
         {rows.map((row) => (
           <div key={row.label}>
@@ -480,15 +559,33 @@ export function VoiceStudioResult({ generation, apiUrl }: { generation: VoiceGen
         ))}
       </dl>
       <div className="buttonRow">
+        <button className="secondary" type="button" onClick={togglePlayback} data-testid="voice-play">
+          {playing ? <Pause size={16} /> : <Play size={16} />} {playing ? "Pausar" : "Reproducir"}
+        </button>
         <a className="primary" href={downloadHref} download={generation.fileName} data-testid="voice-download">
-          <Download size={16} /> Descargar {generation.fileName}
+          <Download size={16} /> Descargar
         </a>
+        {onOpenFolder ? (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => onOpenFolder(generation.folder)}
+            disabled={folderBusy}
+            data-testid="voice-open-folder"
+            title="Abrir la carpeta donde quedo este archivo"
+          >
+            {folderBusy ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} />} Abrir carpeta
+          </button>
+        ) : null}
         {generation.masterUrl ? (
           <a className="secondary" href={absoluteMediaUrl(apiUrl, generation.masterUrl)} download>
             Descargar WAV maestro ({formatBytes(generation.bytes)})
           </a>
         ) : null}
       </div>
+      <p className="fieldHint">
+        Guardado localmente en: <code data-testid="voice-saved-in">{savedInLabel(generation)}</code>
+      </p>
       <p className="fieldHint">
         Duracion {formatDuration(generation.durationSeconds)} · {generation.chunks} fragmento(s) · {generation.textWords} palabras
         narradas.

@@ -15,6 +15,8 @@ import {
   clampSpeed,
   countText,
   describeApiError,
+  buildOpenFolderPayload,
+  folderFromAudioUrl,
   formatBytes,
   formatDuration,
   isGenerateEnabled,
@@ -27,6 +29,7 @@ import {
   rememberFullposVoice,
   resolveVoiceSelection,
   resultRows,
+  savedInLabel,
   speedLabel,
   voiceLabel
 } from "./voice-studio-state";
@@ -209,17 +212,53 @@ test("se parsea el resultado de generacion", () => {
   const rows = resultRows(generation!);
   assert.deepEqual(
     rows.map((row) => row.label),
-    ["Voz", "Duracion", "Tamano", "Formato", "Velocidad", "Fragmentos"]
+    ["Voz", "Duracion", "Tamano", "Formato", "Archivo"]
   );
   assert.equal(rows[0].value, "Dora (ef_dora)");
   assert.equal(rows[1].value, "4.2 s");
   assert.equal(rows[3].value, "WAV");
+  assert.equal(rows[4].value, "ef_dora-abc12345.wav");
 });
 
 test("una respuesta de generacion incompleta se detecta", () => {
   assert.equal(parseGeneration({ id: "abc" }), null);
   assert.equal(parseGeneration(null), null);
   assert.equal(parseGeneration({ id: "abc", audioUrl: "/x.wav" })?.format, "wav");
+});
+
+// ------------------------------------------------- ubicacion y abrir carpeta
+
+test("la ubicacion se deduce del API o de la URL firmada", () => {
+  const withFields = parseGeneration({
+    id: "abc12345",
+    audioUrl: "/voice/files/2026-09-22/ef_dora-abc12345.wav?sig=x",
+    savedIn: "storage/generated-audio/2026-09-22",
+    folder: "2026-09-22"
+  });
+  assert.equal(withFields?.folder, "2026-09-22");
+  assert.equal(savedInLabel(withFields!), "storage/generated-audio/2026-09-22/");
+
+  // Respuesta sin los campos nuevos: se deduce de la URL (resiliencia).
+  const withoutFields = parseGeneration({ id: "abc12345", audioUrl: "/voice/files/2026-09-23/ef_dora-abc12345.wav?sig=x" });
+  assert.equal(withoutFields?.folder, "2026-09-23");
+  assert.equal(savedInLabel(withoutFields!), "storage/generated-audio/2026-09-23/");
+
+  // Preview (carpeta "previews") y caso degenerado.
+  assert.equal(folderFromAudioUrl("/voice/files/previews/ef_dora-1.wav"), "previews");
+  assert.equal(folderFromAudioUrl("sin carpeta"), null);
+  assert.equal(savedInLabel({ savedIn: "", folder: null }), "storage/generated-audio/");
+});
+
+test("abrir carpeta solo envia el nombre de la carpeta (nunca una ruta)", () => {
+  assert.deepEqual(buildOpenFolderPayload("2026-09-22"), { folder: "2026-09-22" });
+  assert.deepEqual(buildOpenFolderPayload("previews"), { folder: "previews" });
+  assert.deepEqual(buildOpenFolderPayload(null), {});
+  assert.deepEqual(buildOpenFolderPayload(undefined), {});
+  assert.deepEqual(buildOpenFolderPayload(""), {});
+  // El NOMBRE que se envia no lleva separadores ni unidad: el backend resuelve la ruta.
+  for (const folder of ["2026-09-22", "previews"]) {
+    assert.doesNotMatch(String(buildOpenFolderPayload(folder).folder), /[\\/:]/);
+  }
 });
 
 // ----------------------------------------------------------------- errores

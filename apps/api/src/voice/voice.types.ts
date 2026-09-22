@@ -75,6 +75,17 @@ export type VoiceGeneration = {
   audioUrl: string;
   downloadUrl: string;
   masterUrl: string | null;
+  /** Carpeta del dia donde quedo el archivo (null si el motor la creo fuera). */
+  folder: string | null;
+  /** Ruta relativa para mostrar en la interfaz (nunca absoluta). */
+  savedIn: string;
+};
+
+/** Resultado de "Abrir carpeta" (el backend lanza el explorador de Windows). */
+export type VoiceOpenFolderResult = {
+  opened: boolean;
+  folder: string | null;
+  savedIn: string;
 };
 
 export type VoiceGenerationRequest = {
