@@ -21,3 +21,8 @@ uvicorn>=0.30,<1.0
 # espeak-ng como rueda: evita el MSI del sistema y no requiere permisos de admin.
 # Kokoro lo necesita para la fonetizacion del espanol (lang_code='e').
 espeakng-loader==0.2.4
+
+# Segundo motor TTS local (Fase 2): voces de espanol latinoamericano.
+# piper-tts trae su propio fonemizador (espeakbridge.pyd + espeak-ng-data) y usa
+# onnxruntime en CPU. ATENCION: piper-tts es GPL-3.0-or-later (ver docs/VOICE_LICENSES.md).
+piper-tts==1.8.0

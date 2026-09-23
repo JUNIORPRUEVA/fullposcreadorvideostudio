@@ -1,18 +1,23 @@
-# Instala el motor TTS local de FullPOS Voice Studio (Fase 1).
+# Instala el motor TTS local de FullPOS Voice Studio (Fases 1 y 2).
 #
 # Que hace:
 #   1. Comprueba que exista un CPython compatible (kokoro exige >=3.10,<3.13).
 #   2. Se apoya en `uv` para obtener CPython 3.12 en el perfil del usuario
 #      (sin permisos de administrador y sin instaladores MSI silenciosos).
-#   3. Crea voice-engine\.venv e instala torch (indice CPU), kokoro, fastapi y
-#      espeakng-loader (espeak-ng como rueda: sin MSI del sistema).
-#   4. Verifica imports y espeak-ng.
-#   5. Descarga los pesos de Kokoro para que la generacion sea offline.
+#   3. Crea voice-engine\.venv e instala torch (indice CPU), kokoro, piper-tts
+#      (segundo motor), fastapi y espeakng-loader (espeak-ng como rueda).
+#   4. Verifica imports, espeak-ng y las versiones reales de los dos motores.
+#   5. Descarga los pesos de Kokoro y las voces Piper de espanol latinoamericano
+#      para que la generacion sea offline.
+#
+# Nota de licencias: piper-tts es GPL-3.0-or-later y las voces Piper se usan con
+# sus propias condiciones. El detalle esta en docs/VOICE_LICENSES.md.
 #
 # No toca produccion, no registra servicios, no instala nada a nivel de sistema.
 [CmdletBinding()]
 param(
   [switch]$SkipModelDownload,
+  [switch]$SkipPiperVoices,
   [switch]$Recreate,
   [string]$PythonVersion = "3.12"
 )
@@ -82,7 +87,7 @@ $Verify = @'
 import json, sys
 from importlib.metadata import version
 report = {"python": sys.version.split()[0]}
-for name in ("torch", "kokoro", "numpy", "soundfile", "fastapi", "uvicorn", "espeakng-loader"):
+for name in ("torch", "kokoro", "piper", "onnxruntime", "numpy", "soundfile", "fastapi", "uvicorn", "espeakng-loader"):
     try:
         report[name] = version(name)
     except Exception as error:
@@ -124,7 +129,28 @@ if (-not $SkipModelDownload) {
   Write-Warn "Se omitio la descarga de pesos (-SkipModelDownload)."
 }
 
+# Las voces de Piper son archivos independientes (un .onnx por voz), asi que se pueden
+# omitir por separado: con Kokoro instalado el estudio ya funciona.
+if (-not ($SkipModelDownload -or $SkipPiperVoices)) {
+  Write-Step "Descargando las voces Piper de espanol latinoamericano (Daniela, Ald, Claude)"
+  Push-Location $EngineDir
+  $previousPythonPath = $env:PYTHONPATH
+  $env:PYTHONPATH = $EngineDir
+  try {
+    & $VenvPython -m voice_engine.piper_fetch
+    if ($LASTEXITCODE -ne 0) { Write-Warn "La descarga no termino bien; puedes reintentarla con: npm run voice:setup" }
+  } finally {
+    $env:PYTHONPATH = $previousPythonPath
+    Pop-Location
+  }
+} elseif ($SkipPiperVoices) {
+  Write-Warn "Se omitieron las voces de Piper (-SkipPiperVoices)."
+}
+
 Write-Step "Listo"
-Write-Host "    Arranca el motor con:  npm run voice:dev" -ForegroundColor White
-Write-Host "    Prueba el motor con:   npm run voice:test" -ForegroundColor White
-Write-Host "    Los audios se guardan en: storage\generated-audio" -ForegroundColor White
+Write-Host "    Arranca el estudio completo:  doble clic en Open-Voice-Studio.cmd" -ForegroundColor White
+Write-Host "    (o desde consola:             npm run voice:studio)" -ForegroundColor White
+Write-Host "    Solo el motor:                npm run voice:dev" -ForegroundColor White
+Write-Host "    Prueba el motor:              npm run voice:test" -ForegroundColor White
+Write-Host "    Licencias de motores y voces: docs\VOICE_LICENSES.md" -ForegroundColor White
+Write-Host "    Los audios se guardan en:     storage\generated-audio" -ForegroundColor White

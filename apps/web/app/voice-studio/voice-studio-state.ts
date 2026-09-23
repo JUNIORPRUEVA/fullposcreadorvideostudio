@@ -25,18 +25,60 @@ export const FULLPOS_VOICE_STORAGE_KEY = "voiceStudioFullposVoice";
 export const PREVIEW_TEXT =
   "Bienvenido a FullPOS Cloud. En este tutorial aprenderás a configurar tu negocio y realizar tus primeras ventas.";
 
+/** Se muestra tal cual cuando el modelo no documenta el genero: no se inventa. */
+export const GENDER_UNSPECIFIED = "Género no especificado";
+
+/** Locales que cuentan como español latinoamericano para el filtro. */
+export const LATAM_LOCALE = /^es_(AR|BO|CL|CO|CR|CU|DO|EC|GT|HN|MX|NI|PA|PE|PR|PY|SV|US|UY|VE|419)$/i;
+
 export type VoiceOptionView = {
+  /** Id nativo del motor (ef_dora, es_AR-daniela-high). */
   id: string;
+  /** Id unico en toda la app: `motor:id`. Es el valor del selector. */
+  key: string;
+  engine: string;
   name: string;
-  gender: string;
+  gender: string | null;
   language: string;
+  locale: string | null;
+  region: string | null;
+  quality: string | null;
+  license: string | null;
+  commercialOk: boolean | null;
+  sourceUrl: string | null;
   available: boolean;
+  note: string | null;
+};
+
+export type VoiceEngineGroupView = {
+  id: string;
+  label: string;
+  installed: boolean;
+  reason: string | null;
+  voices: VoiceOptionView[];
+};
+
+/** Filtros del selector de voz. */
+export type VoiceFilter = "all" | "female" | "male" | "latam";
+
+export const VOICE_FILTERS: Array<{ id: VoiceFilter; label: string }> = [
+  { id: "all", label: "Todas" },
+  { id: "female", label: "Femeninas" },
+  { id: "male", label: "Masculinas" },
+  { id: "latam", label: "Latinoamérica" }
+];
+
+/** Nombre visible de cada motor en la interfaz. */
+export const ENGINE_LABELS: Record<string, string> = {
+  kokoro: "Kokoro",
+  piper: "Español latino / Piper"
 };
 
 export type VoiceGenerationView = {
   id: string;
   fileName: string;
   voice: string;
+  voiceKey?: string;
   voiceName: string | null;
   engine: string;
   format: string;
@@ -69,7 +111,8 @@ export type VoiceHealthView = {
 };
 
 export type VoiceStudioSettings = {
-  voiceId: string;
+  /** Voz elegida como `motor:id` (vacio = sin elegir). */
+  voiceKey: string;
   speed: number;
   pauseMs: number;
   format: "wav" | "mp3";
@@ -80,7 +123,7 @@ export type VoiceStudioPhase = "idle" | "loading" | "previewing" | "generating" 
 export type TextCount = { characters: number; words: number };
 
 export const DEFAULT_SETTINGS: VoiceStudioSettings = {
-  voiceId: "",
+  voiceKey: "",
   speed: DEFAULT_SPEED,
   pauseMs: DEFAULT_PAUSE_MS,
   format: "wav"
@@ -102,16 +145,26 @@ export function isGenerateEnabled(state: {
   settings: VoiceStudioSettings;
   phase: VoiceStudioPhase;
   engineReady: boolean;
+  voice?: VoiceOptionView | null;
 }): boolean {
   if (state.phase === "generating" || state.phase === "previewing" || state.phase === "loading") return false;
   if (!state.engineReady) return false;
-  if (!state.settings.voiceId) return false;
+  if (!state.settings.voiceKey) return false;
+  // Una voz sin modelo descargado no puede generar.
+  if (state.voice && !state.voice.available) return false;
   return countText(state.text).characters > 0;
 }
 
-export function isPreviewEnabled(state: { settings: VoiceStudioSettings; phase: VoiceStudioPhase; engineReady: boolean }): boolean {
+export function isPreviewEnabled(state: {
+  settings: VoiceStudioSettings;
+  phase: VoiceStudioPhase;
+  engineReady: boolean;
+  voice?: VoiceOptionView | null;
+}): boolean {
   if (state.phase === "generating" || state.phase === "previewing" || state.phase === "loading") return false;
-  return state.engineReady && Boolean(state.settings.voiceId);
+  if (!state.engineReady || !state.settings.voiceKey) return false;
+  if (state.voice && !state.voice.available) return false;
+  return true;
 }
 
 // ------------------------------------------------------------- controles
@@ -162,21 +215,41 @@ export function formatClock(iso: string): string {
 
 // -------------------------------------------------------------- peticiones
 
-export function buildGeneratePayload(text: string, settings: VoiceStudioSettings) {
+export function buildGeneratePayload(text: string, settings: VoiceStudioSettings, voice?: VoiceOptionView | null) {
+  const target = splitVoiceKey(settings.voiceKey);
   return {
     text,
-    voice: settings.voiceId,
+    voice: voice?.id ?? target.voiceId,
+    engine: voice?.engine ?? target.engine,
     speed: clampSpeed(settings.speed),
     pauseMs: clampPause(settings.pauseMs),
     format: settings.format
   };
 }
 
-export function buildPreviewPayload(settings: VoiceStudioSettings) {
+export function buildPreviewPayload(settings: VoiceStudioSettings, voice?: VoiceOptionView | null) {
+  const target = splitVoiceKey(settings.voiceKey);
   return {
     text: PREVIEW_TEXT,
-    voice: settings.voiceId,
+    voice: voice?.id ?? target.voiceId,
+    engine: voice?.engine ?? target.engine,
     speed: clampSpeed(settings.speed)
+  };
+}
+
+/**
+ * Cuerpo de PUT /voice/voice-preference. La Voz FullPOS guarda el motor, la voz, su
+ * locale y la velocidad, asi que funciona igual con Kokoro o con Piper.
+ */
+export function buildPreferencePayload(voice: VoiceOptionView | null, settings: VoiceStudioSettings) {
+  const target = splitVoiceKey(settings.voiceKey);
+  return {
+    engine: voice?.engine ?? target.engine,
+    voiceId: voice?.id ?? target.voiceId,
+    voiceName: voice?.name ?? null,
+    locale: voice?.locale ?? null,
+    defaultSpeed: clampSpeed(settings.speed),
+    defaultPauseMs: clampPause(settings.pauseMs)
   };
 }
 
@@ -187,23 +260,105 @@ export function absoluteMediaUrl(apiUrl: string, path: string): string {
   return `${apiUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-export function resolveVoiceSelection(voices: VoiceOptionView[], preferredId: string | null | undefined): string {
+// ------------------------------------------------------------- seleccion
+
+/** Separa `motor:id`. Con un valor sin motor devuelve solo el id. */
+export function splitVoiceKey(key: string | null | undefined): { engine: string; voiceId: string } {
+  const value = (key ?? "").trim();
+  const index = value.indexOf(":");
+  if (index <= 0) return { engine: "", voiceId: value };
+  return { engine: value.slice(0, index), voiceId: value.slice(index + 1) };
+}
+
+export function engineLabel(engine: string): string {
+  return ENGINE_LABELS[engine] ?? engine ?? "Motor";
+}
+
+/** Ej: "Daniela · Argentina · Piper · High". Solo con datos conocidos. */
+export function voiceLabel(voice: VoiceOptionView): string {
+  const quality = voice.quality ? voice.quality.charAt(0).toUpperCase() + voice.quality.slice(1) : null;
+  return [voice.name, voice.region ?? voice.locale, engineLabel(voice.engine), quality]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+/** Datos verificados para mostrar debajo del selector (chips). */
+export function voiceChips(voice: VoiceOptionView): string[] {
+  const chips = [voice.region ?? voice.locale ?? "Español", engineLabel(voice.engine)];
+  if (voice.quality) chips.push(voice.quality.toUpperCase());
+  chips.push(voice.gender ?? GENDER_UNSPECIFIED);
+  if (voice.commercialOk === false) chips.push("Licencia a revisar para uso comercial");
+  if (!voice.available) chips.push("Modelo no descargado");
+  return chips;
+}
+
+/** Motor al que pertenece una voz concreta (para los grupos vacios tras filtrar). */
+export function engineOfKey(key: string | null | undefined): string {
+  return splitVoiceKey(key).engine;
+}
+
+function normalized(value: string | null): string {
+  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+export function matchesFilter(voice: VoiceOptionView, filter: VoiceFilter): boolean {
+  if (filter === "female") return normalized(voice.gender) === "femenina";
+  if (filter === "male") return normalized(voice.gender) === "masculina";
+  if (filter === "latam") return Boolean(voice.locale && LATAM_LOCALE.test(voice.locale));
+  return true;
+}
+
+/** Filtra las voces conservando los grupos de motor (con sus avisos). */
+export function buildVoiceGroups(
+  engines: VoiceEngineGroupView[],
+  voices: VoiceOptionView[],
+  filter: VoiceFilter
+): VoiceEngineGroupView[] {
+  const source = engines.length
+    ? engines.map((group) => ({ ...group, voices: group.voices.length ? group.voices : voices.filter((voice) => voice.engine === group.id) }))
+    : [...new Set(voices.map((voice) => voice.engine))].map((engine) => ({
+        id: engine,
+        label: engineLabel(engine),
+        installed: true,
+        reason: null,
+        voices: voices.filter((voice) => voice.engine === engine)
+      }));
+
+  return source
+    .map((group) => ({ ...group, voices: group.voices.filter((voice) => matchesFilter(voice, filter)) }))
+    .filter((group) => group.voices.length > 0);
+}
+
+export function findVoice(voices: VoiceOptionView[], key: string | null | undefined): VoiceOptionView | null {
+  if (!key) return null;
+  return voices.find((voice) => voice.key === key) ?? null;
+}
+
+/** Elige la voz: la preferida si sigue disponible; si no, la primera usable. */
+export function resolveVoiceSelection(voices: VoiceOptionView[], preferredKey: string | null | undefined): string {
   if (!voices.length) return "";
-  const preferred = preferredId ? voices.find((voice) => voice.id === preferredId) : undefined;
-  if (preferred) return preferred.id;
-  return voices.find((voice) => voice.available)?.id ?? voices[0].id;
+  const preferred = findVoice(voices, preferredKey);
+  if (preferred?.available) return preferred.key;
+  const usable = voices.find((voice) => voice.available);
+  return (usable ?? voices[0]).key;
 }
 
-export function rememberFullposVoice(voiceId: string, name: string | null) {
-  return JSON.stringify({ voiceId, voiceName: name, savedAt: new Date().toISOString() });
+export function rememberFullposVoice(voice: Pick<VoiceOptionView, "key" | "name">) {
+  return JSON.stringify({ key: voice.key, voiceName: voice.name, savedAt: new Date().toISOString() });
 }
 
-export function readRememberedVoice(raw: string | null): { voiceId: string; voiceName: string | null } | null {
+export function readRememberedVoice(raw: string | null): { key: string; voiceName: string | null } | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { voiceId?: unknown; voiceName?: unknown };
-    if (typeof parsed.voiceId !== "string" || !parsed.voiceId) return null;
-    return { voiceId: parsed.voiceId, voiceName: typeof parsed.voiceName === "string" ? parsed.voiceName : null };
+    const parsed = JSON.parse(raw) as { key?: unknown; voiceId?: unknown; engine?: unknown; voiceName?: unknown };
+    const name = typeof parsed.voiceName === "string" ? parsed.voiceName : null;
+    if (typeof parsed.key === "string" && parsed.key) return { key: parsed.key, voiceName: name };
+    // Compatibilidad con lo guardado en la Fase 1 (solo voiceId): era Kokoro.
+    if (typeof parsed.voiceId === "string" && parsed.voiceId) {
+      const engine = typeof parsed.engine === "string" && parsed.engine ? parsed.engine : "kokoro";
+      return { key: `${engine}:${parsed.voiceId}`, voiceName: name };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -247,27 +402,93 @@ function readNumber(source: Record<string, unknown>, key: string): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-/** Voces del API. Devuelve [] si la respuesta no tiene la forma esperada. */
-export function parseVoices(payload: unknown): { voices: VoiceOptionView[]; defaultVoiceId: string; label: string } {
+export type ParsedVoices = {
+  voices: VoiceOptionView[];
+  engines: VoiceEngineGroupView[];
+  defaultVoiceKey: string;
+  defaultEngine: string;
+  label: string;
+};
+
+function parseVoiceOption(item: unknown): VoiceOptionView | null {
+  const voice = asRecord(item);
+  if (!voice) return null;
+  const id = readString(voice, "id");
+  if (!id) return null;
+  const engine = readString(voice, "engine") || "kokoro";
+  const text = (key: string) => {
+    const value = voice[key];
+    return typeof value === "string" && value ? value : null;
+  };
+  return {
+    id,
+    key: readString(voice, "key") || `${engine}:${id}`,
+    engine,
+    name: readString(voice, "name") || id,
+    // Genero: null si la fuente oficial no lo dice (no se inventa).
+    gender: text("gender"),
+    language: readString(voice, "language") || "es",
+    // Si el motor no publica locale, el idioma es lo unico verificable.
+    locale: text("locale") ?? (readString(voice, "language") || null),
+    region: text("region"),
+    quality: text("quality"),
+    license: text("license"),
+    commercialOk: typeof voice.commercialOk === "boolean" ? voice.commercialOk : null,
+    sourceUrl: text("sourceUrl"),
+    available: voice.available !== false,
+    note: text("note")
+  };
+}
+
+/** Voces del API (lista plana + grupos por motor). Nunca lanza. */
+export function parseVoices(payload: unknown): ParsedVoices {
   const record = asRecord(payload);
-  const list = Array.isArray(record?.voices) ? (record?.voices as unknown[]) : [];
-  const voices: VoiceOptionView[] = [];
-  for (const item of list) {
-    const voice = asRecord(item);
-    if (!voice) continue;
-    const id = readString(voice, "id");
+  const flat = Array.isArray(record?.voices) ? (record?.voices as unknown[]) : [];
+  const voices = flat.map(parseVoiceOption).filter((voice): voice is VoiceOptionView => voice !== null);
+
+  const engines: VoiceEngineGroupView[] = [];
+  for (const item of Array.isArray(record?.engines) ? (record?.engines as unknown[]) : []) {
+    const group = asRecord(item);
+    if (!group) continue;
+    const id = readString(group, "id");
     if (!id) continue;
-    voices.push({
+    const groupVoices = (Array.isArray(group.voices) ? (group.voices as unknown[]) : [])
+      .map(parseVoiceOption)
+      .filter((voice): voice is VoiceOptionView => voice !== null);
+    engines.push({
       id,
-      name: readString(voice, "name") || id,
-      gender: readString(voice, "gender"),
-      language: readString(voice, "language") || "es",
-      available: voice.available !== false
+      // Los nombres de grupo que pide el producto mandan sobre la etiqueta del motor.
+      label: ENGINE_LABELS[id] ?? (readString(group, "label") || engineLabel(id)),
+      installed: group.installed !== false,
+      reason: typeof group.reason === "string" && group.reason ? group.reason : null,
+      voices: groupVoices
     });
   }
+
+  const defaultVoiceId = readString(record ?? {}, "defaultVoiceId");
+  const defaultEngine = readString(record ?? {}, "defaultEngine");
+
+  // El API manda la lista plana y los grupos; si alguna voz solo viniera dentro de su
+  // grupo, se anade aqui para que la seleccion y el filtro siempre la encuentren.
+  const known = new Set(voices.map((voice) => voice.key));
+  for (const engine of engines) {
+    for (const voice of engine.voices) {
+      if (!known.has(voice.key)) {
+        known.add(voice.key);
+        voices.push(voice);
+      }
+    }
+  }
+
+  const defaultVoiceKey = voices.find(
+    (voice) => voice.id === defaultVoiceId && (!defaultEngine || voice.engine === defaultEngine)
+  )?.key;
+
   return {
     voices,
-    defaultVoiceId: readString(record ?? {}, "defaultVoiceId"),
+    engines,
+    defaultVoiceKey: defaultVoiceKey ?? "",
+    defaultEngine,
     label: readString(record ?? {}, "label") || "Kokoro"
   };
 }
@@ -343,8 +564,12 @@ export function describeApiError(status: number, payload: unknown, apiUrl = DEFA
 // ----------------------------------------------------------------- resumen
 
 export function resultRows(generation: VoiceGenerationView): Array<{ label: string; value: string }> {
+  const engine = generation.engine || splitVoiceKey(generation.voiceKey).engine;
   return [
-    { label: "Voz", value: generation.voiceName ? `${generation.voiceName} (${generation.voice})` : generation.voice },
+    {
+      label: "Voz",
+      value: `${generation.voiceName ? `${generation.voiceName} (${generation.voice})` : generation.voice}${engine ? ` · ${engineLabel(engine)}` : ""}`
+    },
     { label: "Duracion", value: formatDuration(generation.durationSeconds) },
     { label: "Tamano", value: formatBytes(generation.bytes) },
     { label: "Formato", value: generation.format.toUpperCase() },
@@ -369,7 +594,7 @@ export function phaseMessage(phase: VoiceStudioPhase): string {
   }
 }
 
-export function voiceLabel(voice: VoiceOptionView): string {
-  const gender = voice.gender ? ` · ${voice.gender}` : "";
-  return `${voice.name}${gender} · ${voice.id}`;
+export function voiceLabelForResult(generation: VoiceGenerationView): string {
+  const target = splitVoiceKey(generation.voiceKey ?? `${generation.engine}:${generation.voice}`);
+  return `Voz ${generation.voiceName ?? target.voiceId} (${target.voiceId}) · ${target.engine}`;
 }

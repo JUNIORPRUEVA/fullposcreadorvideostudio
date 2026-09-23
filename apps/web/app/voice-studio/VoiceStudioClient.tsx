@@ -12,14 +12,18 @@ import {
   MAX_PAUSE_MS,
   PREVIEW_TEXT,
   FULLPOS_VOICE_STORAGE_KEY,
+  VOICE_FILTERS,
   absoluteMediaUrl,
   buildGeneratePayload,
   buildOpenFolderPayload,
+  buildPreferencePayload,
   buildPreviewPayload,
+  buildVoiceGroups,
   clampPause,
   clampSpeed,
   countText,
   describeApiError,
+  findVoice,
   formatBytes,
   formatClock,
   formatCount,
@@ -36,7 +40,10 @@ import {
   resultRows,
   savedInLabel,
   speedLabel,
+  voiceChips,
   voiceLabel,
+  type VoiceEngineGroupView,
+  type VoiceFilter,
   type VoiceGenerationView,
   type VoiceHealthView,
   type VoiceOptionView,
@@ -55,6 +62,27 @@ export type VoiceStudioClientProps = {
   apiUrl?: string;
 };
 
+/**
+ * Opciones del selector agrupadas por motor, tal como las pide la Fase 2:
+ * un grupo "Kokoro" y otro "Español latino / Piper".
+ */
+export function VoiceSelectGroups({ groups }: { groups: VoiceEngineGroupView[] }) {
+  return (
+    <>
+      {groups.map((group) => (
+        <optgroup key={group.id} label={group.label}>
+          {group.voices.map((voice) => (
+            <option key={voice.key} value={voice.key} disabled={!voice.available}>
+              {voiceLabel(voice)}
+              {voice.available ? "" : " · no descargada"}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
+}
+
 export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClientProps) {
   // El token del estudio vive en un ref: asi la primera peticion ya lo lleva (el
   // estado se actualiza despues del primer render y llegaria tarde).
@@ -63,7 +91,9 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<VoiceHealthView | null>(null);
   const [voices, setVoices] = useState<VoiceOptionView[]>([]);
-  const [engineLabel, setEngineLabel] = useState("Kokoro");
+  const [engines, setEngines] = useState<VoiceEngineGroupView[]>([]);
+  const [filter, setFilter] = useState<VoiceFilter>("all");
+  const [primaryEngineLabel, setPrimaryEngineLabel] = useState("Kokoro");
   const [settings, setSettings] = useState<VoiceStudioSettings>(DEFAULT_SETTINGS);
   const [script, setScript] = useState("");
   const [generation, setGeneration] = useState<VoiceGenerationView | null>(null);
@@ -73,6 +103,19 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
   const [folderBusy, setFolderBusy] = useState(false);
 
   const counter = useMemo(() => countText(script), [script]);
+  const selectedVoice = useMemo(() => findVoice(voices, settings.voiceKey), [voices, settings.voiceKey]);
+  const voiceGroups = useMemo(() => buildVoiceGroups(engines, voices, filter), [engines, voices, filter]);
+  const engineWarnings = useMemo(
+    () =>
+      engines
+        .filter((group) => !group.installed || group.voices.length === 0)
+        .map((group) => ({
+          id: group.id,
+          text: `${group.label}: ${group.reason ?? "no hay voces descargadas. Ejecuta npm run voice:setup para bajarlas."}`
+        })),
+    [engines]
+  );
+  const hiddenByFilter = voices.length > 0 && voiceGroups.length === 0;
   const engineReady = Boolean(health?.ok);
   const formats = health?.formats?.length ? health.formats : ["wav"];
   const mp3Available = formats.includes("mp3");
@@ -126,10 +169,11 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
       const payload = await apiFetch("/voice/voices");
       const parsed = parseVoices(payload);
       setVoices(parsed.voices);
-      setEngineLabel(parsed.label);
+      setEngines(parsed.engines);
+      setPrimaryEngineLabel(parsed.label);
       setSettings((current) => ({
         ...current,
-        voiceId: resolveVoiceSelection(parsed.voices, current.voiceId || remembered || parsed.defaultVoiceId)
+        voiceKey: resolveVoiceSelection(parsed.voices, current.voiceKey || remembered || parsed.defaultVoiceKey)
       }));
       return parsed.voices;
     },
@@ -142,7 +186,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
     try {
       tokenRef.current = window.localStorage.getItem("videoStudioToken") ?? "";
       const stored = readRememberedVoice(window.localStorage.getItem(FULLPOS_VOICE_STORAGE_KEY));
-      remembered = stored?.voiceId ?? null;
+      remembered = stored?.key ?? null;
       setSavedVoiceId(remembered);
     } catch {
       // Sin almacenamiento local la pagina sigue funcionando.
@@ -183,7 +227,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
     try {
       const payload = await apiFetch("/voice/preview", {
         method: "POST",
-        body: JSON.stringify(buildPreviewPayload(settings))
+        body: JSON.stringify(buildPreviewPayload(settings, selectedVoice))
       });
       const parsed = parseGeneration(payload);
       if (!parsed) throw new ApiError(502, "El motor devolvio una respuesta inesperada al probar la voz.");
@@ -202,7 +246,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
     try {
       const payload = await apiFetch("/voice/generate", {
         method: "POST",
-        body: JSON.stringify(buildGeneratePayload(script, settings))
+        body: JSON.stringify(buildGeneratePayload(script, settings, selectedVoice))
       });
       const parsed = parseGeneration(payload);
       if (!parsed) throw new ApiError(502, "El motor devolvio una respuesta inesperada. Revisa storage/generated-audio.");
@@ -236,22 +280,28 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
   }
 
   async function onSaveAsFullposVoice() {
-    const voice = voices.find((item) => item.id === settings.voiceId);
-    const preference = { voiceId: settings.voiceId, voiceName: voice?.name ?? null, defaultSpeed: settings.speed, defaultPauseMs: settings.pauseMs };
+    const voice = selectedVoice;
+    const preference = buildPreferencePayload(voice, settings);
     try {
       await apiFetch("/voice/voice-preference", { method: "PUT", body: JSON.stringify(preference) });
-      setSavedVoiceId(settings.voiceId);
-      setNotice(`"Voz FullPOS" guardada: ${voice?.name ?? settings.voiceId}.`);
+      setSavedVoiceId(settings.voiceKey);
+      setNotice(`"Voz FullPOS" guardada: ${voice?.name ?? preference.voiceId} (${preference.engine}).`);
       try {
-        window.localStorage.setItem(FULLPOS_VOICE_STORAGE_KEY, rememberFullposVoice(settings.voiceId, voice?.name ?? null));
+        window.localStorage.setItem(
+          FULLPOS_VOICE_STORAGE_KEY,
+          rememberFullposVoice({ key: settings.voiceKey, name: voice?.name ?? preference.voiceId })
+        );
       } catch {
         // La copia local es opcional.
       }
     } catch (saveError) {
       // Sin base de datos: al menos queda guardada en este navegador.
-      setSavedVoiceId(settings.voiceId);
+      setSavedVoiceId(settings.voiceKey);
       try {
-        window.localStorage.setItem(FULLPOS_VOICE_STORAGE_KEY, rememberFullposVoice(settings.voiceId, voice?.name ?? null));
+        window.localStorage.setItem(
+          FULLPOS_VOICE_STORAGE_KEY,
+          rememberFullposVoice({ key: settings.voiceKey, name: voice?.name ?? preference.voiceId })
+        );
       } catch {
         /* ignore */
       }
@@ -278,7 +328,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
         </div>
       </header>
 
-      <EngineStatusCard health={health} engineLabel={engineLabel} notice={notice} apiUrl={apiUrl} />
+      <EngineStatusCard health={health} engineLabel={primaryEngineLabel} notice={notice} apiUrl={apiUrl} />
 
       {error ? <VoiceStudioError message={error} /> : null}
 
@@ -313,26 +363,61 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
         <label className="field">
           <span>Voz</span>
           <select
-            value={settings.voiceId}
-            onChange={(event) => setSettings((current) => ({ ...current, voiceId: event.target.value }))}
+            value={settings.voiceKey}
+            onChange={(event) => setSettings((current) => ({ ...current, voiceKey: event.target.value }))}
             disabled={!voices.length}
             data-testid="voice-select"
           >
-            {voices.length === 0 ? <option value="">Cargando voces...</option> : null}
-            {voices.map((voice) => (
-              <option key={voice.id} value={voice.id}>
-                {voiceLabel(voice)}
-              </option>
-            ))}
+            {voices.length === 0 ? <option value="">Cargando voces...</option> : <VoiceSelectGroups groups={voiceGroups} />}
           </select>
         </label>
+
+        <div className="voiceStudioFilters" role="group" aria-label="Filtros de voz" data-testid="voice-filters">
+          {VOICE_FILTERS.map((item) => (
+            <button
+              key={item.id}
+              className={`voiceFilter ${filter === item.id ? "active" : ""}`}
+              type="button"
+              aria-pressed={filter === item.id}
+              onClick={() => setFilter(item.id)}
+              data-testid={`voice-filter-${item.id}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {engineWarnings.map((warning) => (
+          <p className="fieldHint" key={warning.id} data-testid="voice-engine-warning">
+            {warning.text}
+          </p>
+        ))}
+
+        {hiddenByFilter ? (
+          <p className="fieldHint" data-testid="voice-filter-empty">
+            Ninguna voz coincide con el filtro. Prueba con otro o vuelve a Todas.
+          </p>
+        ) : null}
+
+        {selectedVoice ? (
+          <ul className="voiceStudioChips" data-testid="voice-meta">
+            {voiceChips(selectedVoice).map((chip) => (
+              <li key={chip}>{chip}</li>
+            ))}
+          </ul>
+        ) : null}
+        {selectedVoice?.note ? (
+          <p className="fieldHint" data-testid="voice-note">
+            {selectedVoice.note}
+          </p>
+        ) : null}
 
         <div className="buttonRow">
           <button
             className="secondary"
             type="button"
             onClick={() => void onPreview()}
-            disabled={!isPreviewEnabled({ settings, phase, engineReady })}
+            disabled={!isPreviewEnabled({ settings, phase, engineReady, voice: selectedVoice })}
           >
             {phase === "previewing" ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Probar voz
           </button>
@@ -340,9 +425,9 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
             className="secondary"
             type="button"
             onClick={() => void onSaveAsFullposVoice()}
-            disabled={!settings.voiceId || savedVoiceId === settings.voiceId}
+            disabled={!settings.voiceKey || savedVoiceId === settings.voiceKey}
           >
-            <Star size={16} /> {savedVoiceId === settings.voiceId ? "Voz FullPOS actual" : "Establecer como voz FullPOS"}
+            <Star size={16} /> {savedVoiceId === settings.voiceKey ? "Voz FullPOS actual" : "Establecer como voz FullPOS"}
           </button>
         </div>
 
@@ -410,7 +495,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
             className="primary"
             type="button"
             onClick={() => void onGenerate()}
-            disabled={!isGenerateEnabled({ text: script, settings, phase, engineReady })}
+            disabled={!isGenerateEnabled({ text: script, settings, phase, engineReady, voice: selectedVoice })}
             data-testid="voice-generate"
           >
             {phase === "generating" ? <Loader2 className="spin" size={18} /> : <Volume2 size={18} />} Generar narracion

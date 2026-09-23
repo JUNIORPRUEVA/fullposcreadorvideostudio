@@ -42,6 +42,11 @@ _LANGUAGE_BY_PREFIX = {
 }
 _GENDER_BY_CODE = {"f": "Femenina", "m": "Masculina"}
 
+# Datos oficiales del modelo (hexgrad/Kokoro-82M): licencia Apache-2.0 y genero por
+# voz documentado en VOICES.md. La calidad NO esta publicada por voz: se deja vacia.
+KOKORO_LICENSE = "Apache-2.0 (hexgrad/Kokoro-82M)"
+KOKORO_SOURCE_URL = "https://huggingface.co/hexgrad/Kokoro-82M"
+
 DEFAULT_SAMPLE_RATE = 24_000
 
 
@@ -89,6 +94,8 @@ class KokoroProvider:
             "device": configured_device(),
             "sampleRate": self.sample_rate,
             "voicesSource": self._voices_source,
+            # Solo si la lista ya esta en memoria: /health no debe salir a la red.
+            "voicesTotal": len(self._voices) if self._voices is not None else None,
             "espeak": self._espeak.as_dict(),
             "reason": self._reason(installed, import_error),
         }
@@ -104,8 +111,12 @@ class KokoroProvider:
 
     # ---------------------------------------------------------------- carga
 
-    def load(self) -> None:
-        """Carga el pipeline una sola vez. Idempotente."""
+    def load(self, voice: str | None = None) -> None:
+        """Carga el pipeline una sola vez. Idempotente.
+
+        Kokoro usa un unico modelo con muchas voces, asi que `voice` se ignora (existe
+        para cumplir el contrato de `VoiceProvider`, que Piper si necesita).
+        """
         if self._pipeline is not None:
             return
         if self._load_error:
@@ -249,11 +260,26 @@ def _voices_from_files(files: list[str]) -> list[Voice]:
 
 
 def voice_from_id(voice_id: str) -> Voice:
-    """`ef_dora` -> Femenina / es. La 1a letra es el idioma, la 2a el genero."""
+    """`ef_dora` -> Femenina / es. La 1a letra es el idioma, la 2a el genero.
+
+    El genero sale de la convencion oficial de Kokoro, documentada en VOICES.md
+    (seccion Spanish: 1F 2M). Si el codigo no es f/m, se deja sin especificar.
+    """
     language = _LANGUAGE_BY_PREFIX.get(voice_id[:1], "es")
-    gender = _GENDER_BY_CODE.get(voice_id[1:2], "Desconocida")
     name = voice_id[2:].replace("_", " ").strip().title() or voice_id
-    return Voice(id=voice_id, name=name, gender=gender, language=language)
+    return Voice(
+        id=voice_id,
+        name=name,
+        gender=_GENDER_BY_CODE.get(voice_id[1:2]),
+        language="es",
+        engine="kokoro",
+        locale=language,
+        region=None,  # Kokoro no asigna pais a sus voces en espanol
+        quality=None,
+        license=KOKORO_LICENSE,
+        commercial_ok=True,
+        source_url=KOKORO_SOURCE_URL,
+    )
 
 
 def _short(error: Exception) -> str:

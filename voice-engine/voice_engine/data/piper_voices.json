@@ -1,0 +1,80 @@
+{
+  "_comment": "Catalogo de voces Piper de espanol latinoamericano. TODOS los datos estan verificados contra el MODEL_CARD oficial del repositorio rhasspy/piper-voices (consultado 2026-09-22); el detalle y el analisis de licencias vive en docs/VOICE_LICENSES.md. 'gender' es null a proposito: los model cards NO especifican genero y no se inventa a partir del nombre.",
+  "repo": "rhasspy/piper-voices",
+  "revision": "main",
+  "engine": "piper",
+  "voices": [
+    {
+      "id": "es_AR-daniela-high",
+      "name": "Daniela",
+      "locale": "es_AR",
+      "region": "Argentina",
+      "quality": "high",
+      "gender": null,
+      "sampleRate": 22050,
+      "speakers": 1,
+      "files": [
+        "es/es_AR/daniela/high/es_AR-daniela-high.onnx",
+        "es/es_AR/daniela/high/es_AR-daniela-high.onnx.json"
+      ],
+      "approxBytes": 108900000,
+      "modelLicense": "MIT (repositorio rhasspy/piper-voices)",
+      "datasetName": "SLR61 - Crowdsourced high-quality Argentinian Spanish speech data set",
+      "datasetUrl": "https://www.openslr.org/61/",
+      "datasetLicense": "Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)",
+      "finetunedFrom": "en_US-lessac-high",
+      "trainedBy": "https://huggingface.co/larcanio/piper-voices",
+      "sourceUrl": "https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_AR/daniela/high",
+      "commercialUse": "review",
+      "commercialNote": "El dataset SLR61 es CC BY-SA 4.0: obliga a dar atribucion y a compartir igual. NO aprobada automaticamente para uso comercial; reportar antes de usarla en material de cliente. El model card no especifica genero."
+    },
+    {
+      "id": "es_MX-ald-medium",
+      "name": "Ald",
+      "locale": "es_MX",
+      "region": "Mexico",
+      "quality": "medium",
+      "gender": null,
+      "sampleRate": 22050,
+      "speakers": 1,
+      "files": [
+        "es/es_MX/ald/medium/es_MX-ald-medium.onnx",
+        "es/es_MX/ald/medium/es_MX-ald-medium.onnx.json"
+      ],
+      "approxBytes": 63200000,
+      "modelLicense": "MIT (repositorio rhasspy/piper-voices)",
+      "datasetName": "Ald Mexican Spanish speech dataset (hablante: Aldo)",
+      "datasetUrl": "https://huggingface.co/datasets/rmcpantoja/Ald_Mexican_Spanish_speech_dataset",
+      "datasetLicense": "Unlicense (dominio publico)",
+      "finetunedFrom": "es_ES-davefx-medium (dataset CC0)",
+      "trainedBy": "rmcpantoja",
+      "sourceUrl": "https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_MX/ald/medium",
+      "commercialUse": "ok",
+      "commercialNote": "Dataset Unlicense (dominio publico) y la voz padre (davefx) usa un dataset CC0: cadena limpia para uso comercial. El model card no especifica genero (menciona el nombre del hablante, no el genero)."
+    },
+    {
+      "id": "es_MX-claude-high",
+      "name": "Claude",
+      "locale": "es_MX",
+      "region": "Mexico",
+      "quality": "high",
+      "gender": null,
+      "sampleRate": 22050,
+      "speakers": 1,
+      "files": [
+        "es/es_MX/claude/high/es_MX-claude-high.onnx",
+        "es/es_MX/claude/high/es_MX-claude-high.onnx.json"
+      ],
+      "approxBytes": 63200000,
+      "modelLicense": "MIT (repositorio rhasspy/piper-voices)",
+      "datasetName": "HirCoir/Piper-TTS-Spanish",
+      "datasetUrl": "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish",
+      "datasetLicense": "apache-2.0",
+      "finetunedFrom": null,
+      "trainedBy": "HirCoir",
+      "sourceUrl": "https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_MX/claude/high",
+      "commercialUse": "ok",
+      "commercialNote": "Dataset apache-2.0: uso comercial permitido con aviso de licencia. El model card no especifica genero."
+    }
+  ]
+}

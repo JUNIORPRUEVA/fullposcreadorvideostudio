@@ -254,3 +254,138 @@ def test_lista_de_voces(engine: VoiceEngine):
     assert [voice["id"] for voice in report["voices"]] == ["ef_dora", "em_alex", "em_santa"]
     assert report["sampleRate"] == 24_000
     assert all(voice["language"] == "es" for voice in report["voices"])
+
+
+# ------------------------------------------------- varios motores (Fase 2)
+
+
+PIPER_VOICES = ["es_AR-daniela-high", "es_MX-ald-medium", "es_MX-claude-high"]
+
+
+def two_engine(
+    storage: Path,
+    output_root: Path,
+    *,
+    kokoro_kwargs: dict | None = None,
+    piper_kwargs: dict | None = None,
+) -> tuple[VoiceEngine, FakeProvider, FakeProvider]:
+    kokoro = FakeProvider(engine_id="kokoro-fake", **(kokoro_kwargs or {}))
+    piper = FakeProvider(engine_id="piper-fake", voices=PIPER_VOICES, gender=None, **(piper_kwargs or {}))
+    engine = VoiceEngine(providers=[kokoro, piper], output_root=output_root, storage_root=storage, ffmpeg=None)
+    return engine, kokoro, piper
+
+
+def test_health_sigue_ok_si_un_motor_falta(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root, piper_kwargs={"installed": False})
+    report = engine.health()
+    # Kokoro sigue disponible: que Piper no este instalado no puede romper la pagina.
+    assert report["status"] == "ok"
+    assert report["usable"] is True
+    assert [item["id"] for item in report["engines"]] == ["kokoro-fake", "piper-fake"]
+    assert report["engines"][1]["installed"] is False
+    assert report["reason"] is None
+
+
+def test_health_degradado_solo_si_fallan_todos(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(
+        storage, output_root, kokoro_kwargs={"installed": False}, piper_kwargs={"installed": False}
+    )
+    report = engine.health()
+    assert report["status"] == "degraded"
+    assert report["usable"] is False
+    assert "no esta instalado" in str(report["reason"]).lower() or "instalado" in str(report["reason"])
+
+
+def test_las_voces_se_agrupan_por_motor(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root)
+    report = engine.voices()
+    assert [item["id"] for item in report["engines"]] == ["kokoro-fake", "piper-fake"]
+    assert len(report["engines"][1]["voices"]) == 3
+    flat = {voice["id"]: voice["engine"] for voice in report["voices"]}
+    assert flat["ef_dora"] == "kokoro-fake"
+    assert flat["es_AR-daniela-high"] == "piper-fake"
+    # `key` es unico en toda la aplicacion (motor + id nativo).
+    keys = {voice["key"] for voice in report["voices"]}
+    assert "kokoro-fake:ef_dora" in keys
+    assert "piper-fake:es_MX-ald-medium" in keys
+
+
+def test_genera_con_el_motor_indicado(storage: Path, output_root: Path):
+    engine, kokoro, piper = two_engine(storage, output_root)
+    result = engine.synthesize(
+        SynthesisRequest(text="Hola mundo.", voice="es_MX-ald-medium", engine="piper-fake")
+    )
+    assert result.engine == "piper-fake"
+    assert [call["voice"] for call in piper.calls] == ["es_MX-ald-medium"]
+    assert kokoro.calls == []
+    # El motor le pasa la voz al proveedor (Piper carga un modelo por voz).
+    assert piper.loaded_voices == ["es_MX-ald-medium"]
+
+
+def test_sin_motor_indicado_se_busca_la_voz_en_todos(storage: Path, output_root: Path):
+    engine, kokoro, piper = two_engine(storage, output_root)
+    result = engine.synthesize(SynthesisRequest(text="Hola mundo.", voice="es_AR-daniela-high"))
+    assert result.engine == "piper-fake"
+    assert piper.calls and kokoro.calls == []
+
+    result = engine.synthesize(SynthesisRequest(text="Hola mundo.", voice="ef_dora"))
+    assert result.engine == "kokoro-fake"
+    assert kokoro.calls
+
+
+def test_un_motor_desconocido_se_explica(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root)
+    with pytest.raises(InvalidRequestError) as error:
+        engine.synthesize(SynthesisRequest(text="Hola.", voice="ef_dora", engine="chatterbox"))
+    assert "kokoro-fake" in str(error.value) and "piper-fake" in str(error.value)
+
+
+def test_una_voz_de_otro_motor_no_se_cuela(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root)
+    with pytest.raises(VoiceNotFoundError) as error:
+        engine.synthesize(SynthesisRequest(text="Hola.", voice="es_MX-ald-medium", engine="kokoro-fake"))
+    message = str(error.value)
+    assert "kokoro-fake" in message          # el motor pedido
+    assert "ef_dora" in message              # lo que SI tiene ese motor
+    assert "piper-fake" in message           # donde esta de verdad esa voz
+
+
+def test_una_voz_sin_descargar_avisa_de_lo_que_falta(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root, piper_kwargs={"unavailable": ["es_MX-claude-high"]})
+    with pytest.raises(InvalidRequestError) as error:
+        engine.synthesize(SynthesisRequest(text="Hola.", voice="es_MX-claude-high", engine="piper-fake"))
+    assert "no esta descargada" in str(error.value)
+
+
+def test_una_voz_presente_en_dos_motores_exige_elegir(storage: Path, output_root: Path):
+    kokoro = FakeProvider(engine_id="motor-a", voices=["voz_compartida"])
+    piper = FakeProvider(engine_id="motor-b", voices=["voz_compartida"])
+    engine = VoiceEngine(providers=[kokoro, piper], output_root=output_root, storage_root=storage, ffmpeg=None)
+    with pytest.raises(InvalidRequestError) as error:
+        engine.synthesize(SynthesisRequest(text="Hola.", voice="voz_compartida"))
+    assert "motor-a" in str(error.value) and "motor-b" in str(error.value)
+
+    # Con el motor explicito si funciona.
+    result = engine.synthesize(SynthesisRequest(text="Hola.", voice="voz_compartida", engine="motor-b"))
+    assert result.engine == "motor-b"
+
+
+def test_preview_tambien_respeta_el_motor(storage: Path, output_root: Path):
+    engine, _, piper = two_engine(storage, output_root)
+    result = engine.preview(
+        SynthesisRequest(text="", voice="es_MX-ald-medium", speed=1.0, pause_ms=0, format="wav", engine="piper-fake")
+    )
+    assert result.engine == "piper-fake"
+    assert result.relative_path.startswith("generated-audio/previews/")
+    assert piper.calls[-1]["text"].startswith("Bienvenido a FullPOS Cloud")
+
+
+def test_el_manifiesto_guarda_el_motor(storage: Path, output_root: Path):
+    engine, _, _ = two_engine(storage, output_root)
+    result = engine.synthesize(
+        SynthesisRequest(text="Hola mundo.", voice="es_AR-daniela-high", engine="piper-fake")
+    )
+    manifest = (engine.output_root / result.relative_path.split("generated-audio/", 1)[1]).with_suffix(".json")
+    body = manifest.read_text(encoding="utf-8")
+    assert '"piper-fake"' in body
+    assert '"es_AR-daniela-high"' in body

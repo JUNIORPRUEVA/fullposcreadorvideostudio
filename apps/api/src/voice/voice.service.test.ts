@@ -8,8 +8,75 @@ import { VoiceEngineRequestError, VoiceEngineUnavailableError, type EngineSynthe
 import { VoiceService } from "./voice.service.js";
 
 const VOICES = [
-  { id: "ef_dora", name: "Dora", gender: "Femenina", language: "es", engine: "kokoro", available: true },
-  { id: "em_alex", name: "Alex", gender: "Masculina", language: "es", engine: "kokoro", available: true }
+  {
+    id: "ef_dora",
+    key: "kokoro:ef_dora",
+    engine: "kokoro",
+    name: "Dora",
+    gender: "Femenina",
+    language: "es",
+    locale: "es",
+    region: null,
+    quality: null,
+    license: "Apache-2.0 (hexgrad/Kokoro-82M)",
+    commercialOk: true,
+    sourceUrl: "https://huggingface.co/hexgrad/Kokoro-82M",
+    available: true,
+    note: null
+  },
+  {
+    id: "em_alex",
+    key: "kokoro:em_alex",
+    engine: "kokoro",
+    name: "Alex",
+    gender: "Masculina",
+    language: "es",
+    locale: "es",
+    region: null,
+    quality: null,
+    license: "Apache-2.0 (hexgrad/Kokoro-82M)",
+    commercialOk: true,
+    sourceUrl: "https://huggingface.co/hexgrad/Kokoro-82M",
+    available: true,
+    note: null
+  },
+  {
+    id: "es_MX-ald-medium",
+    key: "piper:es_MX-ald-medium",
+    engine: "piper",
+    name: "Ald",
+    gender: null,
+    language: "es",
+    locale: "es_MX",
+    region: "Mexico",
+    quality: "medium",
+    license: "Unlicense (dominio publico)",
+    commercialOk: true,
+    sourceUrl: "https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_MX/ald/medium",
+    available: true,
+    note: null
+  }
+];
+
+const ENGINE_GROUPS = [
+  {
+    id: "kokoro",
+    label: "Kokoro-82M (local)",
+    source: "huggingface",
+    sampleRate: 24000,
+    installed: true,
+    reason: null,
+    voices: [VOICES[0], VOICES[1]]
+  },
+  {
+    id: "piper",
+    label: "Piper (local)",
+    source: null,
+    sampleRate: 22050,
+    installed: true,
+    reason: null,
+    voices: [VOICES[2]]
+  }
 ];
 
 function synthesis(overrides: Partial<EngineSynthesisResult> = {}): EngineSynthesisResult {
@@ -55,7 +122,7 @@ function fakeEngine(overrides: EngineOverrides = {}) {
         formats: ["wav", "mp3"],
         limits: { maxTextChars: 100_000, chunkChars: 400, minSpeed: 0.5, maxSpeed: 2, maxPauseMs: 2000 }
       })),
-    voices: overrides.voices ?? (async () => ({ engine: "kokoro", label: "Kokoro-82M", source: "test", sampleRate: 24000, voices: VOICES })),
+    voices: overrides.voices ?? (async () => ({ engine: "kokoro", label: "Kokoro-82M", source: "test", sampleRate: 24000, engines: ENGINE_GROUPS, voices: VOICES })),
     synthesize: overrides.synthesize ?? (async (body) => synthesis({ voice: body.voice, speed: body.speed, pauseMs: body.pauseMs, format: body.format })),
     preview:
       overrides.preview ??
@@ -114,8 +181,24 @@ test("health explica el motivo cuando el motor esta apagado", async () => {
 test("voces: se listan y se resuelve la voz FullPOS guardada", async () => {
   const { prisma } = fakePrisma({ stored: JSON.stringify({ voiceId: "em_alex", voiceName: "Alex" }) });
   const report = await service(fakeEngine(), prisma).voices();
-  assert.deepEqual(report.voices.map((voice) => voice.id), ["ef_dora", "em_alex"]);
+  assert.deepEqual(report.voices.map((voice) => voice.id), ["ef_dora", "em_alex", "es_MX-ald-medium"]);
   assert.equal(report.defaultVoiceId, "em_alex");
+  assert.equal(report.defaultEngine, "kokoro");
+});
+
+test("voces: los motores llegan agrupados con su metadata verificada", async () => {
+  const report = await service(fakeEngine(), fakePrisma().prisma).voices();
+  assert.deepEqual(report.engines.map((group) => group.id), ["kokoro", "piper"]);
+  const piper = report.engines[1];
+  assert.equal(piper.installed, true);
+  assert.equal(piper.sampleRate, 22050);
+  const ald = piper.voices[0];
+  assert.equal(ald.key, "piper:es_MX-ald-medium");
+  assert.equal(ald.locale, "es_MX");
+  assert.equal(ald.region, "Mexico");
+  assert.equal(ald.quality, "medium");
+  // El genero no esta verificado en el model card: debe llegar como null, no inventado.
+  assert.equal(ald.gender, null);
 });
 
 test("voces: motor apagado devuelve 503 con mensaje claro", async () => {
@@ -147,12 +230,75 @@ test("generate devuelve URLs firmables y el nombre de la voz", async () => {
   assert.equal(generation.audioUrl, "/voice/files/2026-09-22/ef_dora-abc12345.wav");
   assert.equal(generation.downloadUrl, "/voice/files/2026-09-22/ef_dora-abc12345.wav?download=1");
   assert.equal(generation.voiceName, "Dora");
+  assert.equal(generation.voiceKey, "kokoro:ef_dora");
   assert.equal(generation.chunks, 1);
   assert.equal(generation.format, "wav");
   assert.equal(generation.masterUrl, null);
   // Ubicacion para la interfaz: relativa, nunca absoluta.
   assert.equal(generation.folder, "2026-09-22");
   assert.equal(generation.savedIn, "storage/generated-audio/2026-09-22");
+});
+
+test("el motor elegido se reenvia al voice-engine", async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  const engine = fakeEngine({
+    synthesize: async (body) => {
+      captured.push(body);
+      return synthesis({ voice: body.voice, engine: "piper" });
+    }
+  });
+  const generation = await service(engine, fakePrisma().prisma).generate({
+    text: "Bienvenido a FullPOS Cloud.",
+    voice: "es_MX-ald-medium",
+    engine: "piper",
+    speed: 1,
+    pauseMs: 300,
+    format: "wav"
+  });
+  assert.equal(captured[0].engine, "piper");
+  assert.equal(captured[0].voice, "es_MX-ald-medium");
+  assert.equal(generation.engine, "piper");
+  assert.equal(generation.voiceKey, "piper:es_MX-ald-medium");
+  assert.equal(generation.voiceName, "Ald");
+});
+
+test("preview tambien reenvia el motor", async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  const engine = fakeEngine({
+    preview: async (body) => {
+      captured.push(body);
+      return synthesis({ voice: body.voice, relativePath: "generated-audio/previews/ef_dora-abc12345.wav" });
+    }
+  });
+  await service(engine, fakePrisma().prisma).preview({ voice: "es_MX-ald-medium", engine: "piper", speed: 1 });
+  assert.equal(captured[0].engine, "piper");
+});
+
+test("un motor con formato invalido no llega al voice-engine", async () => {
+  let called = false;
+  const engine = fakeEngine({
+    synthesize: async () => {
+      called = true;
+      return synthesis();
+    }
+  });
+  const target = service(engine, fakePrisma().prisma);
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", engine: "piper/../kokoro" }), BadRequestException);
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", engine: 7 }), BadRequestException);
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", engine: "PIPER " + "x".repeat(40) }), BadRequestException);
+  assert.equal(called, false);
+});
+
+test("el nombre del motor se normaliza (PIPER -> piper)", async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  const engine = fakeEngine({
+    synthesize: async (body) => {
+      captured.push(body);
+      return synthesis({ voice: body.voice, engine: "piper" });
+    }
+  });
+  await service(engine, fakePrisma().prisma).generate({ text: "Hola.", voice: "es_MX-ald-medium", engine: "PIPER" });
+  assert.equal(captured[0].engine, "piper");
 });
 
 test("generate expone el WAV maestro cuando el formato es MP3", async () => {
@@ -183,7 +329,7 @@ test("generate aplica valores por defecto razonables", async () => {
     }
   });
   await service(engine, fakePrisma().prisma).generate({ text: "Hola.", voice: "ef_dora" });
-  assert.deepEqual(captured[0], { text: "Hola.", voice: "ef_dora", speed: 1, pauseMs: 300, format: "wav" });
+  assert.deepEqual(captured[0], { text: "Hola.", voice: "ef_dora", speed: 1, pauseMs: 300, format: "wav", engine: "" });
 });
 
 test("payload invalido no llega al motor", async () => {
@@ -198,7 +344,10 @@ test("payload invalido no llega al motor", async () => {
 
   await assert.rejects(() => target.generate({ voice: "ef_dora" }), BadRequestException);
   await assert.rejects(() => target.generate({ text: "   ", voice: "ef_dora" }), BadRequestException);
-  await assert.rejects(() => target.generate({ text: "Hola.", voice: "DORA" }), BadRequestException);
+  // El id de voz es amplio (es_AR-daniela-high), pero nunca puede ser una ruta.
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "../../etc/passwd" }), BadRequestException);
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "voz con espacios" }), BadRequestException);
+  await assert.rejects(() => target.generate({ text: "Hola.", voice: "es_AR/daniela" }), BadRequestException);
   await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", speed: 9 }), BadRequestException);
   await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", speed: "1.0" }), BadRequestException);
   await assert.rejects(() => target.generate({ text: "Hola.", voice: "ef_dora", pauseMs: -5 }), BadRequestException);
@@ -359,24 +508,57 @@ test("si el sistema no puede abrir el explorador se informa con 503", async () =
 test("la voz FullPOS se guarda en la clave propia del estudio", async () => {
   const { prisma, upserts } = fakePrisma();
   const preference = await service(fakeEngine(), prisma).savePreference({
-    voiceId: "em_alex",
-    voiceName: "Alex",
+    engine: "piper",
+    voiceId: "es_MX-ald-medium",
+    voiceName: "Ald",
+    locale: "es_MX",
     defaultSpeed: 1.1,
     defaultPauseMs: 250
   });
   assert.equal(preference.persisted, true);
-  assert.equal(preference.voiceId, "em_alex");
+  assert.equal(preference.engine, "piper");
+  assert.equal(preference.voiceId, "es_MX-ald-medium");
+  assert.equal(preference.locale, "es_MX");
   assert.equal(preference.defaultSpeed, 1.1);
   assert.equal(upserts.length, 1);
   assert.equal(upserts[0].where.key, "voice.fullpos.default");
-  assert.match(upserts[0].value, /em_alex/);
+  assert.match(upserts[0].value, /es_MX-ald-medium/);
 });
 
-test("la preferencia leida se normaliza al motor actual", async () => {
-  const { prisma } = fakePrisma({ stored: JSON.stringify({ engine: "otro", voiceId: "em_alex", defaultSpeed: 0.95 }) });
+test("una voz Piper de la Fase 2 tiene un id valido para el API", async () => {
+  const generation = await service(fakeEngine(), fakePrisma().prisma).generate({
+    text: "Hola.",
+    voice: "es_AR-daniela-high",
+    engine: "piper"
+  });
+  // El id con guiones y mayusculas (es_AR-daniela-high) pasa la validacion del API.
+  assert.equal(generation.voice, "es_AR-daniela-high");
+  assert.equal(generation.voiceKey.endsWith(":es_AR-daniela-high"), true);
+});
+
+test("la preferencia guardada conserva el motor elegido", async () => {
+  const { prisma } = fakePrisma({
+    stored: JSON.stringify({ engine: "piper", voiceId: "es_MX-ald-medium", locale: "es_MX", defaultSpeed: 0.95 })
+  });
+  const preference = await service(fakeEngine(), prisma).getPreference();
+  assert.equal(preference.engine, "piper");
+  assert.equal(preference.voiceId, "es_MX-ald-medium");
+  assert.equal(preference.locale, "es_MX");
+  assert.equal(preference.persisted, true);
+});
+
+test("una preferencia vieja (sin motor) cae en Kokoro", async () => {
+  const { prisma } = fakePrisma({ stored: JSON.stringify({ voiceId: "em_alex", defaultSpeed: 0.95 }) });
   const preference = await service(fakeEngine(), prisma).getPreference();
   assert.equal(preference.engine, "kokoro");
   assert.equal(preference.voiceId, "em_alex");
+  assert.equal(preference.persisted, true);
+});
+
+test("una preferencia corrupta se ignora sin romper", async () => {
+  const { prisma } = fakePrisma({ stored: JSON.stringify({ engine: "piper/../etc", voiceId: 7 }) });
+  const preference = await service(fakeEngine(), prisma).getPreference();
+  assert.equal(preference.engine, "kokoro");
   assert.equal(preference.persisted, true);
 });
 

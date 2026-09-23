@@ -1,12 +1,79 @@
-# FullPOS Voice Studio (Fase 1)
+# FullPOS Voice Studio (Fases 1 y 2)
 
-Generador **local** de narración TTS para los videos del estudio.
+Generador **local** de narración TTS para los videos del estudio, con **dos motores**
+(Kokoro y Piper) y voces de **español latinoamericano**.
 
-> **Alcance de la Fase 1:** producir audio (WAV/MP3) a partir de un guion, con una voz
-> consistente y repetible. El video sigue editándose en CapCut:
+> **Alcance:** producir audio (WAV/MP3) a partir de un guion, con una voz consistente y
+> repetible. El video sigue editándose en CapCut:
 > `Guion → FullPOS Voice Studio → WAV/MP3 → CapCut`.
 > No hay edición de video, timeline, sincronización con CapCut, clonación de voz,
 > login nuevo, nube ni APIs TTS de pago.
+>
+> **Fase 1:** motor Kokoro + voces españolas + generación completa.
+> **Fase 2:** segundo motor local (Piper) con voces latinas verificadas, filtros y grupos
+> en el selector, metadatos verificados por voz, arranque con doble clic en Windows y
+> documento de licencias (`docs/VOICE_LICENSES.md`).
+
+---
+
+## CÓMO ABRIR VOICE STUDIO
+
+**La forma normal (Windows):** doble clic en `Open-Voice-Studio.cmd`, en la raíz del
+repositorio. El launcher:
+
+1. Comprueba dependencias (Node, `node_modules`, `voice-engine\.venv`) y avisa qué falta.
+2. Comprueba los puertos y **no duplica** nada que ya esté en marcha (si el estudio ya
+   está levantado, lo reutiliza; nunca mata procesos ajenos).
+3. Arranca solo lo que falta: **motor de voz** (:4310), **API** (:4000) y **web** (:3000).
+4. Espera con *health checks* reales (`/health` del motor, `/health` del API y
+   `/voice-studio` del web).
+5. Abre el navegador en <http://localhost:3000/voice-studio>.
+6. Imprime una tabla por componente (puerto, estado, detalle). Si algo falla, explica
+   cuál es el componente, deja el log en `storage\temp\logs\` y **no cierra la ventana**
+   (se queda esperando un Enter para que puedas leer el error).
+
+```powershell
+# equivalente desde terminal, si prefieres verlo ahí
+npm run voice:studio            # arranca y abre el navegador
+npm run voice:studio -- -NoBrowser   # sin abrir el navegador
+```
+
+Para que el arranque tenga sentido, la primera vez (una sola vez) hay que instalar el
+entorno: `npm run voice:setup`.
+
+### Modo desarrollador (paso a paso)
+
+```powershell
+# 1. Motor de voz (deja la terminal abierta; Ctrl+C para detenerlo)
+npm run voice:dev
+
+# 2. Estudio (API + Web) como siempre
+npm run dev:studio
+#   o F5 con "FULLPOS VIDEO STUDIO - LOCAL DEV"
+```
+
+Luego abrir <http://localhost:3000/voice-studio>. En el estudio principal hay un acceso
+**Voice Studio** al final de la barra lateral.
+
+---
+
+## CÓMO CERRAR VOICE STUDIO
+
+**Doble clic en `Stop-Voice-Studio.cmd`** (en la raíz del repositorio). Ese script:
+
+- Detiene **solo** los procesos que arrancó el estudio de voz (motor, API y web),
+  identificados por los pids que guardó el launcher y por su linea de comandos.
+- Nunca cierra `node.exe`/`python.exe` ajenos ni procesos del sistema.
+- No toca la base de datos ni el túnel SSH.
+- Al final verifica los puertos e informa cuál quedó libre.
+
+```powershell
+npm run voice:studio:stop             # cierre normal
+npm run voice:studio:stop -- -Force   # barre además el motor si quedó huérfano
+```
+
+Si el estudio lo arrancaste a mano con `npm run voice:dev` / `npm run dev:studio`, ciérralo
+de la forma de siempre (Ctrl+C o las tareas `Studio: Stop Dev`).
 
 ---
 
@@ -17,26 +84,33 @@ Navegador (Next.js)
   │  POST /voice/generate   (JSON, Authorization opcional)
   ▼
 apps/api  (NestJS, :4000) ── apps/api/src/voice/
-  │      · valida el payload
+  │      · valida el payload (incluido el motor elegido)
   │      · es la ÚNICA frontera hacia el motor
   │      · firma las URLs de audio (HMAC) y sirve el archivo
   ▼  HTTP local (127.0.0.1:4310)
 voice-engine  (Python + FastAPI, solo localhost)
   │      · trocea el guion, narra cada fragmento y los une
+  ├── KokoroProvider → Kokoro-82M (PyTorch, CPU)  24 000 Hz
+  └── PiperProvider  → un .onnx por voz (onnxruntime, CPU)  22 050 Hz
   ▼
-Kokoro-82M (PyTorch, CPU)  →  storage/generated-audio/…
+storage/generated-audio/…
 ```
 
 **Decisión clave:** el navegador nunca invoca scripts de Python. Si el motor está
 apagado, el API responde `503` con un mensaje accionable y la página no se rompe.
 
+Los dos motores viven detrás de la misma interfaz `VoiceProvider` (`load(voice)` +
+`status()`), así que añadir un tercer motor no toca ni la API ni la página.
+
 ### Componentes
 
 | Capa | Ubicación | Responsabilidad |
 | --- | --- | --- |
-| UI | `apps/web/app/voice-studio/` | Guion, contador, selección de voz, prueba, generación, reproductor, descarga, Voz FullPOS |
-| API | `apps/api/src/voice/` | Frontera, validación, timeout, firma de URLs, servicio de archivos, preferencia de voz |
-| Motor | `voice-engine/` | Servicio TTS persistente; carga el modelo **una sola vez** por proceso |
+| UI | `apps/web/app/voice-studio/` | Guion, contador, filtros, selector agrupado por motor, prueba, generación, reproductor, descarga, Voz FullPOS |
+| API | `apps/api/src/voice/` | Frontera, validación (incluido el motor), timeout, firma de URLs, servicio de archivos, preferencia de voz |
+| Motor | `voice-engine/` | Servicio TTS persistente; carga cada modelo **una sola vez** por proceso |
+| Motores | `voice-engine/voice_engine/{kokoro,piper}_provider.py` | Kokoro (Apache-2.0) y Piper (GPL-3.0-or-later, proceso local) |
+| Catálogo | `voice-engine/voice_engine/data/piper_voices.json` | Voces Piper verificadas: licencia, dataset, locale, calidad y `gender: null` si el model card no lo dice |
 | Salida | `storage/generated-audio/` | Audios + manifiesto `.json` con la configuración usada |
 
 ### Puertos locales
@@ -59,6 +133,9 @@ apagado, el API responde `503` con un mensaje accionable y la página no se romp
 | uv | 0.12.17 | Instala Python 3.12 en el perfil del usuario (sin admin) |
 | torch | 2.14.0+cpu | Índice CPU de PyTorch (evita la distribución CUDA de ~2.5 GB) |
 | kokoro | 0.9.4 | Modelo Kokoro-82M (Apache-2.0) |
+| piper-tts | **1.8.0** | Segundo motor (Fase 2). Runtime **GPL-3.0-or-later**: ver `docs/VOICE_LICENSES.md` |
+| onnxruntime | 1.30.0 | Inferencia CPU de los modelos Piper (lo instala `piper-tts`) |
+| Voces Piper | 3 modelos (~229 MB) | `es_AR-daniela-high`, `es_MX-ald-medium`, `es_MX-claude-high` en `voice-engine\voices\piper\` |
 | espeak-ng | vía `espeakng-loader` | Rueda de Python: sin instalador MSI ni permisos de admin |
 | FFmpeg | 9.0 (ya instalado) | **Solo** para MP3; el WAV no lo necesita |
 
@@ -84,12 +161,14 @@ Qué hace, en orden:
 1. Verifica que exista un Python base en el PATH.
 2. Instala `uv` (si falta) y obtiene **CPython 3.12** para el usuario.
 3. Crea `voice-engine\.venv`.
-4. Instala `torch` (CPU), luego `requirements-dev.txt` (kokoro, fastapi, uvicorn,
-   soundfile, numpy, espeakng-loader, pytest).
-5. Imprime un informe `VOICE_SETUP_REPORT` con las versiones reales y el estado de espeak-ng.
-6. Descarga los pesos de Kokoro (una sola vez) para que la generación funcione sin red.
+4. Instala `torch` (CPU), luego `requirements-dev.txt` (kokoro, **piper-tts + onnxruntime**, fastapi,
+   uvicorn, soundfile, numpy, espeakng-loader, pytest).
+5. Imprime un informe `VOICE_SETUP_REPORT` con las versiones reales (incluye `piper`) y el
+   estado de espeak-ng.
+6. Descarga los pesos de Kokoro **y las 3 voces Piper de español latinoamericano**
+   (una sola vez) para que la generación funcione sin red.
 
-Opciones: `-SkipModelDownload`, `-Recreate`, `-PythonVersion 3.12`.
+Opciones: `-SkipModelDownload`, `-SkipPiperVoices`, `-Recreate`, `-PythonVersion 3.12`.
 
 **Nada de esto se despliega ni se registra como servicio.** Si el motor no está instalado,
 la página de Voice Studio sigue funcionando y explica qué ejecutar.
@@ -97,6 +176,10 @@ la página de Voice Studio sigue funcionando y explica qué ejecutar.
 ---
 
 ## 4. Cómo arrancar
+
+La forma normal es **doble clic en `Open-Voice-Studio.cmd`**: ver
+[CÓMO ABRIR VOICE STUDIO](#cómo-abrir-voice-studio) arriba. El arranque manual sigue
+funcionando igual (útil para depurar el motor con la consola delante):
 
 ```powershell
 # 1. Motor de voz (dejar la terminal abierta; Ctrl+C para detener)
@@ -118,21 +201,45 @@ En el estudio principal hay un acceso **Voice Studio** al final de la barra late
 ### Detener el motor
 
 - `Ctrl+C` en la terminal de `npm run voice:dev`, o
-- cerrar la ventana. No hay servicio de Windows ni proceso residente.
+- cerrar la ventana, o
+- **doble clic en `Stop-Voice-Studio.cmd`** si lo arrancaste con el launcher
+  (ver [CÓMO CERRAR VOICE STUDIO](#cómo-cerrar-voice-studio)).
+
+No hay servicio de Windows ni proceso residente.
 
 ---
 
 ## 5. Cómo elegir voz
 
-1. Elige una voz en el selector (se descubren automáticamente las voces **españolas**
-   del modelo; hoy: `ef_dora`, `em_alex`, `em_santa`).
-2. Pulsa **Probar voz**: narra siempre el mismo texto para poder compararlas en igualdad
-   de condiciones.
-3. Ajusta **velocidad** (0.85x – 1.15x, por defecto 1.00x) y **pausa** entre bloques
+El selector está **agrupado por motor** y trae dos grupos con los nombres del producto:
+
+- **Kokoro** — `ef_dora` (Dora), `em_alex` (Alex), `em_santa` (Santa). Español genérico.
+- **Español latino / Piper** — Daniela (`es_AR`, Argentina), Ald (`es_MX`, México),
+  Claude (`es_MX`, México).
+
+1. **Filtros** encima del selector: `Todas` · `Femeninas` · `Masculinas` · `Latinoamérica`.
+   *Latinoamérica* agrupa las voces que declaran locale `es_XX` de la región; las voces
+   Kokoro no declaran país, así que no aparecen en ese filtro (siguen en `Todas`).
+2. Debajo del selector aparecen los **datos verificados** de la voz elegida (región,
+   motor, calidad y género). Si el model card de la voz no declara género, se muestra
+   **"Género no especificado"**: no se inventa a partir del nombre.
+3. Si la voz tiene la licencia pendiente de revisión, se añade el aviso
+   **"Licencia a revisar para uso comercial"** y una nota bajo el selector.
+   El detalle está en `docs/VOICE_LICENSES.md`.
+4. Pulsa **Probar voz**: narra siempre **el mismo texto** para todas las voces, así se
+   comparan en igualdad de condiciones (el texto es idéntico para Kokoro y Piper).
+5. Ajusta **velocidad** (0.85x – 1.15x, por defecto 1.00x) y **pausa** entre bloques
    (0 – 1000 ms, por defecto 300 ms).
-4. Pulsa **Establecer como voz FullPOS** para guardarla como predeterminada
-   (`voice.fullpos.default`). Si la base de datos no responde, se guarda solo en este
-   navegador y la página lo avisa.
+6. Pulsa **Establecer como voz FullPOS** para guardarla como predeterminada
+   (`voice.fullpos.default`, con motor + voz + locale + velocidad). Si la base de datos no
+   responde, se guarda solo en este navegador y la página lo avisa.
+
+Las voces cuyo modelo **no** está descargado aparecen deshabilitadas ("no descargada") y
+no se pueden generar hasta ejecutar `npm run voice:setup`.
+
+> Los dos motores se oyen distinto y **no igualan volumen**: medido con el mismo texto,
+> Kokoro queda alrededor de −26 dBFS de RMS y Piper alrededor de −15 dBFS. Si vas a
+> mezclar voces de motores distintos en un mismo video, iguala el nivel en la edición.
 
 ---
 
@@ -185,6 +292,8 @@ storage/generated-audio/
 | `VOICE_MAX_TEXT_CHARS` | motor | `100000` | Tope de guion |
 | `VOICE_FFMPEG` | motor | FFmpeg del PATH | Ruta explícita a FFmpeg |
 | `VOICE_DEVICE` | motor | `cpu` | Dispositivo de torch |
+| `VOICE_PIPER_DIR` | motor | `voice-engine\voices\piper` | Raíz de los modelos Piper (misma estructura que el repo `rhasspy/piper-voices`) |
+| `VOICE_PIPER_DISABLED` | motor | *(vacío)* | `1`/`true` para arrancar **solo** con Kokoro |
 
 No hay secretos versionados: `.env` sigue ignorado y el token está apagado por defecto.
 
@@ -196,19 +305,24 @@ Motor (`voice-engine`, solo localhost):
 
 | Método | Ruta | Descripción |
 | --- | --- | --- |
-| GET | `/health` | Estado del motor, espeak-ng, FFmpeg, formatos y límites |
-| GET | `/voices` | Voces españolas disponibles |
-| POST | `/synthesize` | Narración completa |
-| POST | `/preview` | Muestra corta de una voz |
+| GET | `/health` | Estado de **cada** motor (`engines[]`), espeak-ng, FFmpeg, formatos y límites |
+| GET | `/voices` | Voces de todos los motores: lista plana + grupos por motor + metadatos verificados |
+| POST | `/synthesize` | Narración completa (`engine` opcional) |
+| POST | `/preview` | Muestra corta de una voz (`engine` opcional) |
+
+Si se omite `engine`, la voz se busca en todos los motores. Si se envía, se valida contra
+ese motor y, si la voz no es suya, el motor responde `400` **diciendo en qué motor sí existe**.
+Un motor no instalado no bloquea al otro: `usable` es verdadero mientras haya **al menos un**
+motor listo.
 
 Estudio (`apps/api`, la única ruta que usa el navegador):
 
 | Método | Ruta | Descripción |
 | --- | --- | --- |
 | GET | `/voice/health` | Estado (nunca falla: explica el motivo) |
-| GET | `/voice/voices` | Voces + voz FullPOS guardada |
+| GET | `/voice/voices` | Voces + **grupos por motor** + voz FullPOS guardada |
 | POST | `/voice/preview` | Prueba de voz (URL firmada) |
-| POST | `/voice/generate` | Narración (URL firmada + metadatos) |
+| POST | `/voice/generate` | Narración (URL firmada + metadatos, incluye el motor) |
 | POST | `/voice/open-folder` | Abre en el Explorador de Windows la carpeta de audios |
 | GET/PUT | `/voice/voice-preference` | Leer/guardar la Voz FullPOS |
 | GET | `/voice/files/:carpeta/:archivo` | Reproductor/descarga (URL firmada, `?download=1`) |
@@ -221,6 +335,10 @@ sin shell. En sistemas que no son Windows responde `503` explicando que es una f
 
 > El repositorio no usa prefijo `/api` en el backend; por eso las rutas son `/voice/...`
 > y no `/api/voice/...`. El prefijo público lo decide el despliegue.
+>
+> El PUT de `/voice/voice-preference` necesita `PUT` en la lista CORS del API
+> (`apps/api/src/main.ts`). Si añades métodos nuevos al cliente, revisa esa lista:
+> un `PUT` bloqueado por CORS hace que la voz se guarde solo en el navegador.
 
 ---
 
@@ -240,7 +358,18 @@ troceo conserva el orden y el texto. Si el motor no está arrancado, lo arranca 
 
 Cobertura del motor: salud, troceo, validación, ensamblado de WAV, **orden correcto de los
 fragmentos**, cargas únicas del modelo, audio fuera de `storage/`, errores de payload,
-motor apagado, token opcional y ausencia de trazas.
+motor apagado, token opcional y ausencia de trazas. Con la Fase 2 se añaden los casos de
+**multi-motor**: catálogo Piper (licencias y `gender: null`), ruta de los `.onnx`, voces no
+descargadas, desactivación por entorno, una sola carga por voz, conversión int16→float32,
+mapeo de `length_scale = 1/velocidad` y motores independientes.
+
+Resultados de referencia (2026-09-22, este equipo):
+
+| Suite | Resultado |
+| --- | --- |
+| `voice:test` (pytest del motor) | **94 pasan** |
+| API (`apps/api/src/voice/*.test.ts`) | **81 pasan** |
+| Web (`apps/web/app/voice-studio/*.test.tsx?`) | **67 pasan** |
 
 ---
 
@@ -261,19 +390,25 @@ motor apagado, token opcional y ausencia de trazas.
 
 ---
 
-## 11. Limitaciones conocidas (Fase 1)
+## 11. Limitaciones conocidas
 
-- Las voces españolas del modelo son **español genérico**, no una voz dominicana. Si
-  ninguna encaja, el motor está desacoplado (`VoiceProvider`) para cambiar de motor sin
-  rehacer ni la API ni la página.
+- Las voces Kokoro de español son **español genérico**, no una voz dominicana ni de un país
+  concreto: no declaran país, así que quedan fuera del filtro "Latinoamérica". Las voces
+  latinas disponibles son de Piper (Argentina y México).
+- La voz **Daniela** (`es_AR-daniela-high`) está marcada como **no aprobada para uso
+  comercial** hasta revisar el share-alike de su dataset (CC BY-SA 4.0). Ver
+  `docs/VOICE_LICENSES.md`.
+- El runtime de **Piper es GPL-3.0-or-later**: se ejecuta como proceso local separado, pero
+  debe revisarse antes de distribuir binarios del estudio a terceros.
 - Generación **en serie y en CPU**: una narración a la vez; no hay cola ni trabajos en
   segundo plano. La petición HTTP espera el resultado.
+- Los motores **no igualan volumen** entre sí (Kokoro ≈ −26 dBFS RMS, Piper ≈ −15 dBFS).
 - `storage/generated-audio/previews/` **acumula** pruebas de voz: no hay limpieza
   automática (borrar a mano cuando moleste).
 - No hay historial de narraciones en la interfaz: el archivo queda en disco y se descarga
   desde el navegador.
-- El motor **no** está incluido en el `F5`/`npm run dev:studio`; se arranca aparte con
-  `npm run voice:dev` (para no acoplar el editor de video al motor de voz).
+- El motor **no** está incluido en el `F5`/`npm run dev:studio`; el launcher
+  (`Open-Voice-Studio.cmd`) sí lo arranca, pero se mantiene desacoplado del editor de video.
 - Sin autenticación propia: el motor solo escucha en `127.0.0.1` y el API reutiliza la
   sesión del estudio (`videoStudioToken`).
 
@@ -281,7 +416,8 @@ motor apagado, token opcional y ausencia de trazas.
 
 ## 12. Siguientes pasos sugeridos
 
-1. Escuchar `ef_dora`, `em_alex` y `em_santa` y fijar la **Voz FullPOS**.
-2. Validar la consistencia real repitiendo una narración en días distintos.
-3. Solo después: afinar tono/acento (diccionario de pronunciación, énfasis) o evaluar otro
-   motor manteniendo esta misma arquitectura.
+1. Escuchar las 6 voces y fijar la **Voz FullPOS** (Kokoro o Piper).
+2. Decidir sobre la licencia de Daniela y sobre la distribución de binarios (Piper GPL).
+3. Validar la consistencia real repitiendo una narración en días distintos.
+4. Solo después: afinar tono/acento (diccionario de pronunciación, énfasis) o evaluar otro
+   motor manteniendo esta misma arquitectura (basta un `VoiceProvider` nuevo).

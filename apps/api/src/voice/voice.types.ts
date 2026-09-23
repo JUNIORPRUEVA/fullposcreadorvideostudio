@@ -7,11 +7,31 @@
 
 export type VoiceOption = {
   id: string;
-  name: string;
-  gender: string;
-  language: string;
+  /** Identificador unico en toda la app: `motor:id` (piper:es_MX-ald-medium). */
+  key: string;
   engine: string;
+  name: string;
+  /** null cuando la fuente oficial NO especifica genero: no se inventa. */
+  gender: string | null;
+  language: string;
+  locale: string | null;
+  region: string | null;
+  quality: string | null;
+  license: string | null;
+  commercialOk: boolean | null;
+  sourceUrl: string | null;
   available: boolean;
+  note: string | null;
+};
+
+export type VoiceEngineGroup = {
+  id: string;
+  label: string;
+  source: string | null;
+  sampleRate: number;
+  installed: boolean;
+  reason: string | null;
+  voices: VoiceOption[];
 };
 
 export type VoiceEngineHealth = {
@@ -60,6 +80,8 @@ export type VoiceGeneration = {
   id: string;
   fileName: string;
   voice: string;
+  /** Voz usada como `motor:id`, para poder volver a seleccionarla en el selector. */
+  voiceKey: string;
   voiceName: string | null;
   engine: string;
   format: string;
@@ -94,6 +116,8 @@ export type VoiceGenerationRequest = {
   speed: number;
   pauseMs: number;
   format: "wav" | "mp3";
+  /** Motor TTS. Vacio = el motor busca la voz en todos los disponibles. */
+  engine: string;
 };
 
 export type VoicePreference = {
@@ -101,6 +125,7 @@ export type VoicePreference = {
   voiceId: string;
   voiceName: string | null;
   language: string;
+  locale: string | null;
   defaultSpeed: number;
   defaultPauseMs: number;
   updatedAt: string;

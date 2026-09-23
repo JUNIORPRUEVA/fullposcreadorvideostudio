@@ -34,6 +34,7 @@ apps/api/prisma/storage/
 storage/generated-audio/*
 !storage/generated-audio/.gitkeep
 voice-engine/.venv/
+voice-engine/voices/
 __pycache__/
 *.pyc
 voice-engine/.pytest_cache/

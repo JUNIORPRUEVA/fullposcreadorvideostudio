@@ -296,13 +296,300 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+/* A sangre completa: sin margen lateral para que las columnas toquen los bordes. */
 .mainEditorMode {
-  padding: 16px clamp(16px, 1.6vw, 26px);
+  padding: 6px 0;
 }
 
-.mainEditorMode > .topbar,
-.mainEditorMode > .notice {
+/* La appbar del editor es una sola linea: titulo + chip + pasos + acciones. */
+.mainEditorMode .topbar {
+  margin-bottom: 6px;
+  padding: 0 12px;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.mainEditorMode .title h1 {
+  font-size: 22px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* Los datos del proyecto ya viajan en la appbar: la cabecera solo robaba altura. */
+.mainEditorMode .editorHeader {
   display: none;
+}
+
+/* Los mensajes flotan: no le roban altura al editor. */
+.mainEditorMode > .notice {
+  position: fixed;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 60;
+  margin: 0;
+  max-width: min(620px, 80vw);
+  padding: 9px 14px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, .5);
+}
+
+/* El cuerpo del editor ocupa toda la altura libre y todo el ancho. */
+.mainEditorMode .stepBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+}
+
+.mainEditorMode .sectionBlock.editorDark {
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.mainEditorMode .trainingEditor {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(230px, 24%) minmax(0, 1fr) minmax(340px, 31%);
+  gap: 6px;
+  align-items: stretch;
+}
+
+/* Las tres columnas van sin marco: solo fondo y separacion, sin lineas de borde. */
+.mainEditorMode .editorDark .storyboard {
+  height: 100%;
+  min-height: 0;
+  padding: 6px 8px;
+  gap: 6px;
+  border: 0;
+  border-radius: 0 10px 10px 0;
+  background: rgba(8, 15, 28, .58);
+}
+
+.mainEditorMode .editorDark .previewColumn {
+  height: 100%;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(8, 15, 28, .42);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+/* Columna de pasos compacta y elegante. */
+.mainEditorMode .panelTitle {
+  align-items: center;
+}
+
+.mainEditorMode .chapterGroup {
+  gap: 5px;
+}
+
+.mainEditorMode .chapterName {
+  margin-top: 4px;
+  gap: 0;
+}
+
+.mainEditorMode .editorDark .chapterName input {
+  border: 0;
+  border-bottom: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: #8fa3c2;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.mainEditorMode .editorDark .simpleStepCard {
+  min-height: 44px;
+  padding: 6px 8px;
+  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr) 18px;
+  border-radius: 7px;
+  border-color: rgba(125, 157, 205, .16);
+}
+
+.mainEditorMode .editorDark .simpleStepCard > span:first-child {
+  width: 24px;
+  height: 24px;
+  font-size: 10.5px;
+}
+
+.mainEditorMode .simpleStepCard strong {
+  font-size: 12.5px;
+}
+
+.mainEditorMode .simpleStepCard small {
+  margin-top: 1px;
+  font-size: 11px;
+}
+
+.mainEditorMode .storyboard .secondary.fullWidth {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.mainEditorMode .chapterList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.mainEditorMode .chapterList strong {
+  display: none;
+}
+
+.mainEditorMode .chapterList .secondary {
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+/* Aviso flotante sobre la vista previa (render en curso / fallback al medio). */
+.mainEditorMode .trainingPreview {
+  position: relative;
+}
+
+.previewBadge {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid rgba(125, 157, 205, .24);
+  border-radius: 999px;
+  background: rgba(9, 16, 30, .94);
+  color: #cfe0ff;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+}
+
+.previewBadge.warn {
+  border-color: rgba(244, 198, 204, .42);
+  color: #ffd9de;
+}
+
+/* Mientras el render avanza el aviso va centrado y bien visible. */
+.previewBadge.loading {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  padding: 9px 16px;
+  font-size: 12.5px;
+  background: rgba(9, 16, 30, .97);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+}
+
+/* Columna derecha a sangre: sin bordes laterales y ocupando todo el ancho libre. */
+.mainEditorMode .editorDark .sceneProperties {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 10px 0 0 10px;
+  background: rgba(7, 13, 24, .94);
+  padding: 8px 12px 10px;
+}
+
+/* La imagen es la protagonista: la vista previa usa todo el alto disponible. */
+.mainEditorMode .trainingPreview {
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .42);
+}
+
+.mainEditorMode .panelTitle strong {
+  font-size: 14px;
+}
+
+.mainEditorMode .panelTitle small {
+  font-size: 12px;
+}
+
+.mainEditorMode .editorEmptyState {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mainEditorMode .actions {
+  margin-top: 8px;
+}
+
+.mainEditorMode .actions .primary,
+.mainEditorMode .actions .secondary {
+  min-height: 34px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+/* Navegacion de pasos dentro de la appbar (misma linea que el titulo). */
+.topbarWithSteps .topbarMain {
+  flex: 0 1 auto;
+}
+
+.topbarWithSteps .appbarSteps {
+  margin-right: auto;
+}
+
+.topbar .appbarSteps {
+  margin: 0;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.main.configMode .appbarSteps,
+.mainEditorMode .appbarSteps {
+  margin: 0;
+}
+
+.appbarSteps::-webkit-scrollbar {
+  display: none;
+}
+
+.appbarSteps .step {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1320px) {
+  .appbarSteps .step {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+
+  .mainEditorMode .trainingEditor {
+    grid-template-columns: minmax(200px, 23%) minmax(0, 1fr) minmax(310px, 32%);
+  }
+}
+
+@media (max-width: 1050px) {
+  .topbar .appbarChip {
+    display: none;
+  }
 }
 
 .topbar {
@@ -497,17 +784,28 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+.mainEditorMode .editorWorkspace {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
 .mainEditorMode .editorWorkspace > .card {
-  padding: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .mainEditorMode .editorHeader {
-  margin-bottom: 10px;
-  padding: 9px 10px;
+  margin-bottom: 8px;
+  padding: 7px 11px;
 }
 
 .mainEditorMode .steps {
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
 .mainEditorMode .actions {
@@ -2289,3 +2587,861 @@ textarea:focus-visible {
     flex: 1 1 180px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Pantalla "Crear video" · paso 1 (Configuración)
+   Appbar de una sola línea + línea de detalles compacta. Todo el contenido
+   entra en la pantalla sin necesidad de hacer scroll.
+--------------------------------------------------------------------------- */
+
+.topbarMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.appbarChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #244a85;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: #10213d;
+  color: #9dc0ff;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.main.configMode {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px var(--page-x) 10px;
+}
+
+.main.configMode .topbar {
+  margin-bottom: 8px;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.main.configMode .title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.main.configMode .title h1 {
+  font-size: 22px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.main.configMode .rowActions .primary {
+  min-height: 34px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+}
+
+.main.configMode .notice {
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  font-size: 13.5px;
+}
+
+.main.configMode .editorWorkspace {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.main.configMode .editorWorkspace > .card {
+  height: 100%;
+  min-height: 0;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main.configMode .editorHeader {
+  margin-bottom: 8px;
+  padding: 8px 11px;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.main.configMode .editorHeader div:first-child {
+  min-width: 0;
+  gap: 1px;
+}
+
+.main.configMode .editorHeader strong,
+.main.configMode .editorHeader span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main.configMode .editorHeader strong {
+  font-size: 15px;
+}
+
+.main.configMode .editorHeader span {
+  font-size: 12.5px;
+}
+
+.main.configMode .renderPill {
+  padding: 5px 10px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.main.configMode .steps {
+  margin-bottom: 8px;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.main.configMode .step {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* El único contenedor con scroll posible; con el layout compacto nunca hace falta. */
+.main.configMode .stepBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.main.configMode .configStep {
+  gap: 12px;
+}
+
+.main.configMode .configGroup {
+  gap: 8px;
+}
+
+.main.configMode .sectionHeader strong {
+  font-size: 15px;
+}
+
+.main.configMode .sectionHeader p {
+  margin-top: 2px;
+  font-size: 12.5px;
+}
+
+.main.configMode .sectionHeader .primary,
+.main.configMode .sectionHeader .secondary {
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.main.configMode .compactBrands {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.main.configMode .compactBrandCard {
+  padding: 7px 36px 7px 8px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.main.configMode .brandLogoMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.main.configMode .compactBrandCard strong {
+  font-size: 13.5px;
+}
+
+.main.configMode .compactBrandCard small {
+  font-size: 11.5px;
+}
+
+.main.configMode .videoTypeGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.main.configMode .videoTypeCard {
+  min-height: 0;
+  padding: 9px 10px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 2px 8px;
+}
+
+.main.configMode .videoTypeCard strong {
+  font-size: 13.5px;
+}
+
+.main.configMode .videoTypeCard p {
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.main.configMode .videoTypeCard small {
+  font-size: 11px;
+}
+
+.main.configMode .typeIcon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 10.5px;
+}
+
+/* Paso 2 · Contenido: formulario compacto y campos opcionales marcados. */
+.main.configMode .formGrid {
+  gap: 10px 14px;
+}
+
+.main.configMode .field {
+  gap: 5px;
+}
+
+.main.configMode .field label,
+.main.configMode .field span {
+  font-size: 12.5px;
+}
+
+.main.configMode .field input,
+.main.configMode .field select,
+.main.configMode .field textarea {
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 13.5px;
+}
+
+.fieldHint {
+  margin-left: 7px;
+  padding: 1px 7px;
+  border: 1px solid #24344f;
+  border-radius: 999px;
+  background: #16233a;
+  color: #7f93b0;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.main.configMode .actions {
+  margin-top: 8px;
+}
+
+.main.configMode .actions .primary,
+.main.configMode .actions .secondary {
+  min-height: 34px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+@media (max-height: 740px) {
+  .main.configMode {
+    padding-top: 8px;
+  }
+
+  .main.configMode .editorHeader {
+    margin-bottom: 6px;
+    padding: 6px 10px;
+  }
+
+  .main.configMode .steps {
+    margin-bottom: 6px;
+  }
+
+  .main.configMode .step {
+    min-height: 27px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .main.configMode .configStep {
+    gap: 8px;
+  }
+
+  .main.configMode .videoTypeCard {
+    padding: 7px 9px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .main.configMode .videoTypeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .main.configMode .topbar {
+    flex-wrap: wrap;
+  }
+
+  .main.configMode .appbarChip {
+    display: none;
+  }
+
+  .main.configMode .steps {
+    overflow-x: auto;
+  }
+
+  .main.configMode .compactBrands {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Pantalla "Crear video" · paso 3 (Editar) · layout a sangre completa
+   La columna izquierda toca el borde izquierdo y la derecha el borde derecho,
+   las tres ocupan toda la altura libre. Los selectores usan 2 clases
+   (.main.mainEditorMode) para ganar tambien a las media queries que vuelven a
+   dar padding a `.main` en pantallas pequenas.
+--------------------------------------------------------------------------- */
+
+.main.mainEditorMode {
+  height: 100dvh;
+  padding: 6px 0;
+  overflow: hidden;
+}
+
+.main.mainEditorMode .topbar {
+  padding: 0 12px;
+  margin-bottom: 6px;
+}
+
+/* Nombre del proyecto y tipo dentro de la appbar (sustituye la cabecera). */
+.main.mainEditorMode .appbarChip.appbarProject {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(620px, 48vw);
+  padding: 4px 12px;
+}
+
+.main.mainEditorMode .appbarProject strong,
+.main.mainEditorMode .appbarProject small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main.mainEditorMode .appbarProject strong {
+  font-size: 13px;
+  color: #e8f1ff;
+}
+
+.main.mainEditorMode .appbarProject small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #8fa9cc;
+}
+
+.main.mainEditorMode .editorWorkspace {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.main.mainEditorMode .editorWorkspace > .card {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main.mainEditorMode .stepBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   Tarjetas de paso: estrechas y altas. El contenido va apilado y ordenado de
+   arriba abajo (icono + titulo a 2 lineas + duracion), para que un nombre de
+   archivo largo se lea completo en lugar de cortarse.
+--------------------------------------------------------------------------- */
+
+/* La lista empieza SIEMPRE arriba: sin esto el grid estira las filas para
+   rellenar la columna y con 1 o 2 pasos las tarjetas salian gigantes y con el
+   contenido perdido en el centro. */
+.main.mainEditorMode .editorDark .storyboard,
+.main.mainEditorMode .editorDark .storyboard .chapterGroup {
+  align-content: start;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard {
+  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    "icon title"
+    "icon meta"
+    "actions actions";
+  align-items: start;
+  column-gap: 9px;
+  row-gap: 4px;
+  height: auto;
+  min-height: 0;
+  padding: 9px;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard > span:first-child {
+  grid-area: icon;
+  align-self: stretch;
+  width: 26px;
+  height: auto;
+  min-height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #17294a, #0e1c33);
+  color: #82b2ff;
+  font-size: 11px;
+}
+
+/* El envoltorio desaparece para que el titulo y la duracion sean celdas. */
+.main.mainEditorMode .editorDark .simpleStepCard > div {
+  display: contents;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard > div > strong {
+  grid-area: title;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  font-size: 12.5px;
+  line-height: 1.25;
+}
+
+/* La duracion va como chip debajo del titulo, siempre dentro de la tarjeta. */
+.main.mainEditorMode .editorDark .simpleStepCard > div > small {
+  grid-area: meta;
+  justify-self: start;
+  margin-top: 0;
+  padding: 2px 8px;
+  border: 1px solid rgba(125, 157, 205, .18);
+  border-radius: 999px;
+  background: rgba(20, 34, 58, .85);
+  color: #9fb6d6;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+/* Sin desplegable: las acciones viven dentro de la tarjeta. */
+.main.mainEditorMode .editorDark .simpleStepCard > .menuHint {
+  display: none;
+}
+
+/* Las acciones (subir, bajar, duplicar, eliminar) son una barra propia DENTRO
+   de la tarjeta: SIEMPRE en una sola linea, pequena y ordenada. */
+.main.mainEditorMode .editorDark .simpleStepCard .stepMenu {
+  position: static;
+  grid-area: actions;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  margin-top: 7px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(125, 157, 205, .16);
+  border-radius: 8px;
+  background: rgba(16, 28, 48, .72);
+  box-shadow: none;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard .stepMenu button {
+  min-width: 0;
+  padding: 5px 2px;
+  border: 0;
+  border-left: 1px solid rgba(125, 157, 205, .14);
+  border-radius: 0;
+  background: transparent;
+  color: #9fb6d6;
+  font-size: 9.5px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard .stepMenu button:first-child {
+  border-left: 0;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard .stepMenu button:hover:not(:disabled) {
+  background: rgba(30, 52, 88, .9);
+  color: #cfe0ff;
+}
+
+.main.mainEditorMode .editorDark .simpleStepCard .stepMenu button:disabled {
+  opacity: .4;
+}
+
+/* La imagen de la vista previa queda centrada en su marco. */
+.main.mainEditorMode .trainingPreview img,
+.main.mainEditorMode .trainingPreview video {
+  object-position: center center;
+}
+
+/* Zoom de inspeccion de la vista previa (Ctrl + rueda). */
+.previewStage {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  transform-origin: center center;
+  transition: transform .07s ease-out;
+}
+
+.previewZoomChip {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid rgba(125, 157, 205, .28);
+  border-radius: 999px;
+  background: rgba(9, 16, 30, .94);
+  color: #cfe0ff;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.previewZoomChip:hover {
+  border-color: rgba(93, 152, 255, .6);
+  color: #ffffff;
+}
+
+/* Subida como UNA operacion: el layout de 3 columnas no cambia, solo aparece
+   el estado explicito de lo que esta pasando. */
+.pendingSteps,
+.pendingHint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 0;
+  padding: 9px 10px;
+  border: 1px dashed rgba(125, 157, 205, .28);
+  border-radius: 9px;
+  background: rgba(14, 26, 45, .6);
+  color: #9fb6d6;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.pendingHint {
+  margin-top: 4px;
+}
+
+/* Pantallas estrechas: el editor se apila y hace scroll en lugar de cortarse. */
+@media (max-width: 1180px) {
+  .main.mainEditorMode .stepBody {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .main.mainEditorMode .trainingEditor {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main.mainEditorMode .editorDark .storyboard,
+  .main.mainEditorMode .editorDark .previewColumn,
+  .main.mainEditorMode .editorDark .sceneProperties {
+    height: auto;
+    border-radius: 10px;
+  }
+
+  .main.mainEditorMode .editorDark .previewColumn {
+    min-height: 58vh;
+  }
+
+  .main.mainEditorMode .trainingPreview {
+    min-height: 46vh;
+  }
+}
+
+/* ==========================================================================
+   FullPOS Voice Studio (Fase 1) - generador local de narracion.
+   Se anade al final a proposito: no modifica ninguna regla existente.
+   ========================================================================== */
+.voiceStudio {
+  display: grid;
+  gap: 20px;
+  padding: var(--page-y) var(--page-x) 60px;
+  /* Respaldo universal: si el navegador no soporta :has(), el propio contenedor
+     scrollea (rueda, trackpad y barra). html/body estan fijados (overflow: hidden)
+     porque la app del estudio scrollea dentro de .main. */
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/*
+ * Navegacion estandar: con esta pagina montada el DOCUMENTO vuelve a ser el elemento
+ * que scrollea (rueda, PageDown/PageUp/Inicio/Fin, barra del navegador), sin scroll
+ * anidado ni doble barra. El selector esta acotado a esta ruta con :has(), asi que el
+ * resto del estudio (que scrollea dentro de .main) no se ve afectado.
+ * En navegadores sin :has() queda el respaldo de arriba (el contenedor scrollea).
+ */
+html:has(> body > .voiceStudio) {
+  height: auto;
+  overflow: visible;
+}
+
+html:has(> body > .voiceStudio) body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+html:has(> body > .voiceStudio) .voiceStudio {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+/* El contenido se centra igual que antes (antes lo hacia max-width en la raiz),
+   pero ahora la raiz ocupa todo el ancho para que la barra quede en el borde. */
+.voiceStudio > * {
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  min-width: 0;
+}
+
+.voiceStudioHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.voiceStudioHeader h1 {
+  margin: 6px 0 4px;
+  font-size: 34px;
+}
+
+.voiceStudioEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.voiceStudioSubtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.voiceStudioFacts {
+  list-style: none;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.voiceStudioRows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.voiceStudioRows dt {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.voiceStudioRows dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.voiceStudioResult audio,
+.voiceStudioPreview audio {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.voiceStudioError {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(203, 59, 74, .14);
+  border: 1px solid var(--danger);
+  color: #ffd9de;
+  padding: 14px 16px;
+  border-radius: 8px;
+}
+
+.voiceStudioFormats {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.voiceStudioFormats legend {
+  color: #c6d5eb;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 0 0 7px;
+}
+
+.voiceStudioScript textarea {
+  min-height: 220px;
+}
+
+/* Filtros del selector de voz (Todas / Femeninas / Masculinas / Latinoamerica). */
+.voiceStudioFilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.voiceFilter {
+  border: 1px solid var(--line);
+  background: #142238;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voiceFilter.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+/* Datos verificados de la voz elegida: region, motor, calidad y genero. */
+.voiceStudioChips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.voiceStudioChips li {
+  background: #16233a;
+  border: 1px solid #24344f;
+  border-radius: 999px;
+  color: #9fb0c8;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* En Voice Studio los avisos son frases largas, no etiquetas: se neutraliza el
+   estilo de "chip" (10px, MAYUSCULAS) de .fieldHint solo dentro de esta pagina. */
+.voiceStudio .fieldHint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--muted);
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  margin-left: 0;
+}
+
+.voiceStudio .fieldHint code {
+  color: #cfe1ff;
+  background: #16233a;
+  border: 1px solid #24344f;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+.voiceStudio .primary,
+.voiceStudio .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voiceStudio .secondary {
+  border: 1px solid var(--line);
+  padding: 11px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.voiceStudio .primary {
+  padding: 11px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.spin {
+  animation: voiceStudioSpin 1s linear infinite;
+}
+
+@keyframes voiceStudioSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* El acceso a Voice Studio es un enlace (navegacion real), no un boton de seccion. */
+.sidebar a.navItem {
+  text-decoration: none;
+  color: inherit;
+}
+

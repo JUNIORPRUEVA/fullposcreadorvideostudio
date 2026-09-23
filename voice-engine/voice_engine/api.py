@@ -14,11 +14,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import __version__
-from .config import access_token, device, model_repo
+from .config import access_token, device, model_repo, piper_disabled
 from .engine import VoiceEngine
 from .errors import UnauthorizedError, VoiceEngineError
 from .kokoro_provider import KokoroProvider
 from .models import SynthesisRequest
+from .piper_provider import PiperProvider
 
 LOGGER = logging.getLogger("voice_engine.api")
 
@@ -29,16 +30,24 @@ class SynthesizeBody(BaseModel):
     speed: float = 1.0
     pauseMs: int = 300
     format: str = "wav"
+    # Motor TTS (kokoro | piper). Opcional: si falta, se busca la voz en todos.
+    engine: str | None = None
 
 
 class PreviewBody(BaseModel):
     text: str | None = None
     voice: str | None = None
     speed: float = 1.0
+    engine: str | None = None
 
 
 def build_default_engine() -> VoiceEngine:
-    return VoiceEngine(KokoroProvider())
+    """Motores activos: Kokoro + Piper (Piper se puede desactivar por entorno)."""
+    providers: list = [KokoroProvider()]
+    if not piper_disabled():
+        providers.append(PiperProvider())
+    LOGGER.info("Motores de voz: %s", ", ".join(provider.engine_id for provider in providers))
+    return VoiceEngine(providers=providers)
 
 
 def create_app(engine: VoiceEngine | None = None) -> FastAPI:

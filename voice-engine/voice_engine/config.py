@@ -66,6 +66,17 @@ def max_text_chars() -> int:
     return _int_env("VOICE_MAX_TEXT_CHARS", MAX_TEXT_CHARS)
 
 
+def piper_root() -> Path:
+    """Carpeta de los modelos Piper (no se versiona: se descargan con voice:setup)."""
+    configured = os.environ.get("VOICE_PIPER_DIR")
+    return Path(configured).resolve() if configured else REPO_ROOT / "voice-engine" / "voices" / "piper"
+
+
+def piper_disabled() -> bool:
+    """Permite arrancar sin Piper (p. ej. entornos sin onnxruntime)."""
+    return (os.environ.get("VOICE_PIPER_DISABLED") or "").strip().lower() in {"1", "true", "yes", "si"}
+
+
 def chunk_chars() -> int:
     return _int_env("VOICE_CHUNK_CHARS", DEFAULT_CHUNK_CHARS)
 

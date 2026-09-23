@@ -14,6 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
+from typing import Sequence
 
 from . import text as text_module
 from .audio import concatenate, duration_seconds, encode_mp3, normalize_peak, write_wav
@@ -49,18 +50,45 @@ PREVIEW_FOLDER = "previews"
 _AUTO = object()
 
 
+def _status_usable(status: dict) -> bool:
+    """Un motor esta usable si esta instalado y su fonemizador esta disponible.
+
+    Piper trae su propio fonemizador, asi que devuelve `espeak: None` y eso no bloquea.
+    """
+    if not status.get("installed"):
+        return False
+    espeak = status.get("espeak")
+    if isinstance(espeak, dict) and not espeak.get("available", True):
+        return False
+    return True
+
+
 class VoiceEngine:
+    """Orquestador multi-motor.
+
+    Acepta un proveedor suelto (`VoiceEngine(provider)`, usado por las pruebas) o varios
+    (`providers=[kokoro, piper]`). La seleccion de motor va por el campo `engine` de la
+    peticion; si no viene, la voz se busca en todos los motores.
+    """
+
     def __init__(
         self,
-        provider: VoiceProvider,
+        provider: VoiceProvider | None = None,
         *,
+        providers: Sequence[VoiceProvider] | None = None,
         output_root: Path | None = None,
         storage_root: Path | None = None,
         chunk_chars: int | None = None,
         max_chars: int | None = None,
         ffmpeg: object = _AUTO,
     ) -> None:
-        self._provider = provider
+        if provider is not None and providers is not None:
+            raise ValueError("Usa `provider` o `providers`, no ambos.")
+        selected = [provider] if provider is not None else list(providers or [])
+        if not selected:
+            raise ValueError("VoiceEngine necesita al menos un proveedor de voz.")
+        self._providers: list[VoiceProvider] = selected
+        self._by_engine: dict[str, VoiceProvider] = {item.engine_id: item for item in selected}
         self._output_root = Path(output_root or configured_output_root()).resolve()
         self._storage_root = Path(storage_root or configured_storage_root()).resolve()
         self._chunk_chars = int(chunk_chars or configured_chunk_chars())
@@ -71,26 +99,32 @@ class VoiceEngine:
 
     @property
     def provider(self) -> VoiceProvider:
-        return self._provider
+        """Proveedor principal (el primero). Se mantiene por compatibilidad."""
+        return self._providers[0]
+
+    @property
+    def providers(self) -> list[VoiceProvider]:
+        return list(self._providers)
 
     @property
     def output_root(self) -> Path:
         return self._output_root
 
     def health(self) -> dict:
-        """Nunca lanza: la pagina debe poder mostrar por que el motor no esta listo."""
-        status = self._provider.status()
-        installed = bool(status.get("installed"))
-        espeak = status.get("espeak") or {}
-        espeak_ready = bool(espeak.get("available"))
-        usable = installed and espeak_ready
+        """Nunca lanza: la pagina debe poder mostrar por que motor no esta listo."""
+        statuses = [provider.status() for provider in self._providers]
+        usable = [status for status in statuses if _status_usable(status)]
+        primary = statuses[0]
         formats = ["wav"] + (["mp3"] if self._ffmpeg else [])
+        reasons = [str(status.get("reason")) for status in statuses if status.get("reason")]
         return {
             "status": "ok" if usable else "degraded",
-            "usable": usable,
-            "engine": status,
+            "usable": bool(usable),
+            # `engine`/`espeak` se mantienen de Fase 1 (motor principal).
+            "engine": primary,
+            "engines": statuses,
+            "espeak": primary.get("espeak") or {},
             "python": sys.version.split()[0],
-            "espeak": espeak,
             "ffmpeg": {"available": bool(self._ffmpeg), "path": self._ffmpeg},
             "formats": formats,
             "limits": {
@@ -104,18 +138,40 @@ class VoiceEngine:
                 "storageRoot": str(self._storage_root),
                 "outputRoot": str(self._output_root),
             },
-            "reason": status.get("reason") if not usable else None,
+            "reason": None if usable else "; ".join(reasons) or "Ningun motor de voz esta disponible.",
         }
 
     def voices(self) -> dict:
-        voices = self._provider.voices()
-        status = self._provider.status()
+        """Voces de todos los motores (lista plana + agrupadas por motor).
+
+        La lista plana conserva el formato de Fase 1 y ahora cada entrada trae su motor,
+        locale, region, calidad y licencia.
+        """
+        flat: list[dict] = []
+        engines: list[dict] = []
+        for provider in self._providers:
+            status = provider.status()
+            voices = provider.voices()
+            flat.extend(voice.as_dict(provider.engine_id) for voice in voices)
+            engines.append(
+                {
+                    "id": provider.engine_id,
+                    "label": provider.label,
+                    "source": status.get("voicesSource") or status.get("root"),
+                    "sampleRate": provider.sample_rate,
+                    "installed": bool(status.get("installed")),
+                    "reason": status.get("reason"),
+                    "voices": [voice.as_dict(provider.engine_id) for voice in voices],
+                }
+            )
+        primary = self._providers[0]
         return {
-            "engine": self._provider.engine_id,
-            "label": self._provider.label,
-            "source": status.get("voicesSource"),
-            "sampleRate": self._provider.sample_rate,
-            "voices": [voice.as_dict(self._provider.engine_id) for voice in voices],
+            "engine": primary.engine_id,
+            "label": primary.label,
+            "source": engines[0]["source"] if engines else None,
+            "sampleRate": primary.sample_rate,
+            "engines": engines,
+            "voices": flat,
         }
 
     # ------------------------------------------------------------ sintesis
@@ -130,6 +186,7 @@ class VoiceEngine:
                 speed=request.speed,
                 pause_ms=0,
                 format="wav",
+                engine=request.engine,
             ),
             folder=PREVIEW_FOLDER,
         )
@@ -147,14 +204,14 @@ class VoiceEngine:
         speed = self._validate_speed(request.speed)
         pause_ms = self._validate_pause(request.pause_ms)
         audio_format = self._validate_format(request.format)
-        voice = self._resolve_voice(request.voice)
+        provider, voice = self._resolve_target(request.engine, request.voice)
         chunks = text_module.split_into_chunks(text, self._chunk_chars)
         if not chunks:
             raise InvalidRequestError("No se pudo extraer narracion del guion enviado.")
 
-        # Carga perezosa y unica del modelo (no se recarga por frase).
-        self._provider.load()
-        sample_rate = self._provider.sample_rate
+        # Carga perezosa: el modelo (o la voz, en Piper) se carga una vez y se reutiliza.
+        provider.load(voice)
+        sample_rate = provider.sample_rate
 
         pieces = []
         pauses: list[int] = []
@@ -162,7 +219,7 @@ class VoiceEngine:
         for index, chunk in enumerate(chunks):
             started = perf_counter()
             try:
-                piece = self._provider.synthesize(chunk.text, voice, speed)
+                piece = provider.synthesize(chunk.text, voice, speed)
             except Exception as error:
                 note = f"fragmento {index + 1} de {len(chunks)}"
                 if hasattr(error, "add_note"):
@@ -215,7 +272,7 @@ class VoiceEngine:
             voice=voice,
             speed=speed,
             pause_ms=pause_ms,
-            engine=self._provider.engine_id,
+            engine=provider.engine_id,
             created_at=created_at,
             text_characters=stats["characters"],
             text_words=stats["words"],
@@ -251,16 +308,60 @@ class VoiceEngine:
             )
         return value
 
-    def _resolve_voice(self, voice: str) -> str:
-        available = [item.id for item in self._provider.voices()]
-        if not available:
-            raise VoiceNotFoundError("El motor no reporto ninguna voz en espanol disponible.")
+    def _resolve_target(self, engine: str | None, voice: str) -> tuple[VoiceProvider, str]:
+        """Devuelve (proveedor, id nativo de la voz) validando motor y disponibilidad."""
         candidate = (voice or "").strip()
-        if candidate in available:
-            return candidate
-        raise VoiceNotFoundError(
-            f"La voz '{candidate or '(vacia)'}' no esta disponible. Voces validas: {', '.join(available)}."
-        )
+        if not candidate:
+            raise VoiceNotFoundError("Selecciona una voz antes de generar.")
+        requested = (engine or "").strip().lower()
+
+        if requested:
+            provider = self._by_engine.get(requested)
+            if provider is None:
+                raise InvalidRequestError(
+                    f"El motor '{requested}' no esta disponible. Motores activos: {', '.join(self._by_engine) or '(ninguno)'}."
+                )
+            return self._check_voice(provider, candidate)
+
+        # Sin motor explicito: se busca la voz en todos los motores activos.
+        matches = [
+            provider
+            for provider in self._providers
+            if any(item.id == candidate for item in provider.voices())
+        ]
+        if not matches:
+            raise VoiceNotFoundError(self._not_found_message(candidate))
+        if len(matches) > 1:
+            activos = ", ".join(provider.engine_id for provider in matches)
+            raise InvalidRequestError(
+                f"La voz '{candidate}' existe en varios motores ({activos}): indica el motor al generar."
+            )
+        return self._check_voice(matches[0], candidate)
+
+    def _check_voice(self, provider: VoiceProvider, voice: str) -> tuple[VoiceProvider, str]:
+        entries = provider.voices()
+        found = next((item for item in entries if item.id == voice), None)
+        if found is None:
+            disponibles = ", ".join(item.id for item in entries) or "(ninguna)"
+            # Si la voz existe en otro motor, decirlo: ahorra al usuario buscar a mano.
+            otros = [
+                other.engine_id
+                for other in self._providers
+                if other is not provider and any(item.id == voice for item in other.voices())
+            ]
+            extra = f" Si existe en: {', '.join(otros)}." if otros else ""
+            raise VoiceNotFoundError(
+                f"La voz '{voice}' no existe en el motor {provider.engine_id}. Disponibles: {disponibles}.{extra}"
+            )
+        if not found.available:
+            raise InvalidRequestError(
+                found.note or f"La voz '{voice}' todavia no esta lista para usarse (modelo sin descargar)."
+            )
+        return provider, voice
+
+    def _not_found_message(self, voice: str) -> str:
+        available = [item.id for provider in self._providers for item in provider.voices()]
+        return f"La voz '{voice}' no esta disponible. Voces validas: {', '.join(available) or '(ninguna)'}."
 
     # ---------------------------------------------------------------- rutas
 
@@ -276,8 +377,9 @@ class VoiceEngine:
     def _write_manifest(self, audio_path: Path, result: SynthesisResult, request: SynthesisRequest) -> None:
         """Manifiesto junto al audio: permite auditar que voz/speed produjo el archivo."""
         manifest = {
-            "engine": self._provider.engine_id,
+            "engine": result.engine,
             "request": {
+                "engine": request.engine or result.engine,
                 "voice": request.voice,
                 "speed": result.speed,
                 "pauseMs": result.pause_ms,

@@ -6,6 +6,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { openInExplorer, resolveGeneratedAudioFolder, type OpenResult } from "./open-folder.js";
 import { VoiceEngineClient, VoiceEngineError, type EngineSynthesisResult, type EngineVoiceList } from "./voice-engine.client.js";
 import type {
+  VoiceEngineGroup,
   VoiceGeneration,
   VoiceGenerationRequest,
   VoiceHealthReport,
@@ -15,7 +16,7 @@ import type {
 } from "./voice.types.js";
 
 const PREFERENCE_KEY = "voice.fullpos.default";
-const ENGINE_ID = "kokoro";
+const DEFAULT_ENGINE = "kokoro";
 
 /* Limites espejo de voice-engine/config.py. Se repiten aqui para no depender de un
  * viaje al motor al validar, y para que un payload invalido no llegue siquiera a
@@ -27,16 +28,19 @@ const MAX_PAUSE_MS = 2_000;
 const DEFAULT_SPEED = 1;
 const DEFAULT_PAUSE_MS = 300;
 
-const VOICE_ID_PATTERN = /^[a-z]{2}_[a-z0-9_]{1,32}$/;
+const VOICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$/;
+// Motores registrados en el motor de voz (kokoro, piper, ...).
+const ENGINE_PATTERN = /^[a-z][a-z0-9_-]{1,15}$/;
 const FOLDER_PATTERN = /^[a-z0-9-]{1,32}$/;
 const FILE_PATTERN = /^[A-Za-z0-9._-]{1,120}\.(wav|mp3)$/;
 const VOICES_CACHE_MS = 60_000;
 
 const DEFAULT_PREFERENCE: Omit<VoicePreference, "persisted"> = {
-  engine: ENGINE_ID,
+  engine: DEFAULT_ENGINE,
   voiceId: "ef_dora",
   voiceName: "Dora",
   language: "es",
+  locale: "es",
   defaultSpeed: DEFAULT_SPEED,
   defaultPauseMs: DEFAULT_PAUSE_MS,
   updatedAt: new Date(0).toISOString()
@@ -90,7 +94,15 @@ export class VoiceService {
     }
   }
 
-  async voices(): Promise<{ engine: string; label: string; source: string | null; voices: VoiceOption[]; defaultVoiceId: string }> {
+  async voices(): Promise<{
+    engine: string;
+    label: string;
+    source: string | null;
+    voices: VoiceOption[];
+    engines: VoiceEngineGroup[];
+    defaultVoiceId: string;
+    defaultEngine: string;
+  }> {
     const list = await this.loadVoices();
     const preference = await this.getPreference();
     return {
@@ -98,16 +110,27 @@ export class VoiceService {
       label: list.label,
       source: list.source ?? null,
       voices: list.voices,
-      defaultVoiceId: preference.voiceId
+      engines: (list.engines ?? []).map((group) => ({
+        id: group.id,
+        label: group.label,
+        source: group.source ?? null,
+        sampleRate: group.sampleRate ?? 0,
+        installed: group.installed !== false,
+        reason: group.reason ?? null,
+        voices: group.voices ?? []
+      })),
+      defaultVoiceId: preference.voiceId,
+      defaultEngine: preference.engine
     };
   }
 
   async preview(body: Record<string, unknown>): Promise<VoiceGeneration> {
     const voice = this.readVoice(body.voice);
     const speed = this.readSpeed(body.speed);
+    const engine = this.readEngine(body.engine);
     const text = typeof body.text === "string" ? body.text.slice(0, 320) : "";
     try {
-      const result = await this.engine.preview({ text, voice, speed });
+      const result = await this.engine.preview({ text, voice, speed, engine });
       return await this.toGeneration(result);
     } catch (error) {
       throw toHttpError(error);
@@ -175,7 +198,8 @@ export class VoiceService {
       return {
         ...DEFAULT_PREFERENCE,
         ...parsed,
-        engine: ENGINE_ID,
+        // Nunca se fuerza un motor concreto: la voz FullPOS puede ser Kokoro o Piper.
+        engine: ENGINE_PATTERN.test(String(parsed.engine ?? "")) ? String(parsed.engine) : DEFAULT_ENGINE,
         persisted: true
       };
     } catch {
@@ -187,10 +211,14 @@ export class VoiceService {
   async savePreference(body: Record<string, unknown>): Promise<VoicePreference> {
     const current = await this.getPreference();
     const next: Omit<VoicePreference, "persisted"> = {
-      engine: ENGINE_ID,
+      engine: this.readEngine(body.engine) || current.engine,
       voiceId: typeof body.voiceId === "string" && VOICE_ID_PATTERN.test(body.voiceId.trim()) ? body.voiceId.trim() : current.voiceId,
       voiceName: typeof body.voiceName === "string" && body.voiceName.trim() ? body.voiceName.trim().slice(0, 80) : current.voiceName,
       language: "es",
+      locale:
+        typeof body.locale === "string" && body.locale.trim()
+          ? body.locale.trim().slice(0, 16)
+          : current.locale,
       defaultSpeed: readNumber(body.defaultSpeed, current.defaultSpeed, MIN_SPEED, MAX_SPEED),
       defaultPauseMs: readInteger(body.defaultPauseMs, current.defaultPauseMs, 0, MAX_PAUSE_MS),
       updatedAt: new Date().toISOString()
@@ -242,6 +270,7 @@ export class VoiceService {
       id: result.generationId,
       fileName: result.fileName,
       voice: result.voice,
+      voiceKey: `${result.engine}:${result.voice}`,
       voiceName: await this.voiceNameFor(result.voice),
       engine: result.engine,
       format: result.format,
@@ -290,8 +319,18 @@ export class VoiceService {
       voice: this.readVoice(body.voice),
       speed: this.readSpeed(body.speed),
       pauseMs: readInteger(body.pauseMs, DEFAULT_PAUSE_MS, 0, MAX_PAUSE_MS, "La pausa debe estar entre 0 y 2000 ms."),
-      format
+      format,
+      engine: this.readEngine(body.engine)
     };
+  }
+
+  private readEngine(value: unknown): string {
+    if (value === undefined || value === null || value === "") return "";
+    const engine = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!ENGINE_PATTERN.test(engine)) {
+      throw new BadRequestException("El motor de voz indicado no es valido.");
+    }
+    return engine;
   }
 
   private readVoice(value: unknown): string {

@@ -27,22 +27,29 @@ class FakeProvider:
     def __init__(
         self,
         *,
+        engine_id: str = "fake",
+        label: str = "Proveedor de prueba",
         sample_rate: int = 24_000,
         installed: bool = True,
         espeak_available: bool = True,
         fail_on_index: int | None = None,
         seconds_per_char: float = 0.01,
         voices: list[str] | None = None,
+        gender: str | None = "Femenina",
+        unavailable: list[str] | None = None,
     ) -> None:
-        self.engine_id = "fake"
-        self.label = "Proveedor de prueba"
+        self.engine_id = engine_id
+        self.label = label
         self.sample_rate_rate = sample_rate
         self.voices_available = voices or ["ef_dora", "em_alex", "em_santa"]
+        self._gender = gender
+        self._unavailable = set(unavailable or [])
         self._installed = installed
         self._espeak_available = espeak_available
         self._fail_on_index = fail_on_index
         self._seconds_per_char = seconds_per_char
         self.calls: list[dict] = []
+        self.loaded_voices: list[str | None] = []
         self.load_count = 0
         self.load_attempts = 0
         self._loaded = False
@@ -64,10 +71,11 @@ class FakeProvider:
             "reason": None if self._installed else "Motor no instalado (prueba).",
         }
 
-    def load(self) -> None:
-        """Como el proveedor real: idempotente. `load_attempts` cuenta las llamadas y
-        `load_count` las cargas reales del modelo."""
+    def load(self, voice: str | None = None) -> None:
+        """Como el proveedor real: idempotente. `load_attempts` cuenta las llamadas,
+        `load_count` las cargas reales y `loaded_voices` deja ver que voz se pidio."""
         self.load_attempts += 1
+        self.loaded_voices.append(voice)
         if self._loaded:
             return
         if not self._installed:
@@ -77,7 +85,20 @@ class FakeProvider:
 
     def voices(self) -> list[Voice]:
         return [
-            Voice(id=voice_id, name=voice_id.title(), gender="Femenina", language="es")
+            Voice(
+                id=voice_id,
+                name=voice_id.title(),
+                gender=self._gender,
+                language="es",
+                engine=self.engine_id,
+                locale="es",
+                region="Region de prueba",
+                quality="test",
+                license="MIT (prueba)",
+                commercial_ok=True,
+                available=voice_id not in self._unavailable,
+                note=f"La voz {voice_id} no esta descargada." if voice_id in self._unavailable else None,
+            )
             for voice_id in self.voices_available
         ]
 

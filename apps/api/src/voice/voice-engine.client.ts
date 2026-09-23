@@ -61,6 +61,15 @@ export type EngineVoiceList = {
   label: string;
   source?: string;
   sampleRate: number;
+  engines?: Array<{
+    id: string;
+    label: string;
+    source?: string | null;
+    sampleRate?: number;
+    installed?: boolean;
+    reason?: string | null;
+    voices: VoiceOption[];
+  }>;
   voices: VoiceOption[];
 };
 
@@ -91,11 +100,12 @@ export class VoiceEngineClient {
     speed: number;
     pauseMs: number;
     format: string;
+    engine?: string;
   }): Promise<EngineSynthesisResult> {
     return this.request<EngineSynthesisResult>("POST", "/synthesize", body, SYNTHESIS_TIMEOUT_MS);
   }
 
-  preview(body: { text?: string; voice: string; speed: number }): Promise<EngineSynthesisResult> {
+  preview(body: { text?: string; voice: string; speed: number; engine?: string }): Promise<EngineSynthesisResult> {
     return this.request<EngineSynthesisResult>("POST", "/preview", body, SYNTHESIS_TIMEOUT_MS);
   }
 

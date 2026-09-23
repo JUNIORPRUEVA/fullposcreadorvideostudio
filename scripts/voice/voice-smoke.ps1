@@ -3,16 +3,21 @@
 #   npm run voice:smoke            (o: powershell -File scripts/voice/voice-smoke.ps1)
 #
 # Comprueba, contra el motor de verdad (no mocks):
-#   1. /health usable y voz disponible.
-#   2. El mismo texto + la misma voz produce 3 archivos WAV validos, con la misma
+#   1. /health usable y motores registrados (Kokoro y Piper).
+#   2. Voces por motor, con sus metadatos verificados (sin genero inventado).
+#   3. El mismo texto + la misma voz produce 3 archivos WAV validos, con la misma
 #      configuracion (asi se demuestra la consistencia dia a dia).
-#   3. Un guion de varios parrafos se trocea y se vuelve a unir en orden.
-#   4. (Si hay FFmpeg) el MP3 tambien se genera.
+#   4. El segundo motor (Piper, espanol latino) tambien narra de verdad.
+#   5. Un guion de varios parrafos se trocea y se vuelve a unir en orden.
+#   6. (Si hay FFmpeg) el MP3 tambien se genera.
 # Si el motor no esta arrancado, este script lo arranca y lo detiene al terminar.
 [CmdletBinding()]
 param(
   [int]$Port = 4310,
   [string]$Voice = "ef_dora",
+  [string]$Engine = "kokoro",
+  [string]$PiperVoice = "es_MX-ald-medium",
+  [switch]$SkipPiper,
   [switch]$KeepAlive
 )
 
@@ -49,10 +54,18 @@ function Get-JsonPath([string]$RelativePath) {
 }
 
 function Invoke-Synthesis {
-  param([string]$Text, [string]$Format = "wav", [int]$PauseMs = 300)
-  $payload = '{"text":' + (ConvertTo-Json -InputObject $Text -Compress) +
-             ',"voice":"' + $Voice + '","speed":1.0,"pauseMs":' + $PauseMs + ',"format":"' + $Format + '"}'
-  return Invoke-RestMethod -Uri "$BaseUrl/synthesize" -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 900
+  param(
+    [string]$Text,
+    [string]$Format = "wav",
+    [int]$PauseMs = 300,
+    [string]$VoiceName = "",
+    [string]$EngineId = ""
+  )
+  if (-not $VoiceName) { $VoiceName = $Voice }
+  if (-not $EngineId) { $EngineId = $Engine }
+  $body = '{"text":' + (ConvertTo-Json -InputObject $Text -Compress) +
+          ',"voice":"' + $VoiceName + '","engine":"' + $EngineId + '","speed":1.0,"pauseMs":' + $PauseMs + ',"format":"' + $Format + '"}'
+  return Invoke-RestMethod -Uri "$BaseUrl/synthesize" -Method Post -ContentType "application/json" -Body $body -TimeoutSec 900
 }
 
 function Assert-AudioFile {
@@ -106,6 +119,20 @@ try {
   Pass "formatos disponibles: $($health.formats -join ', ')"
   Say "       modelo: $($health.model) · device: $($health.device) · python: $($health.python)" "DarkGray"
 
+  # -------------------------------------------------------- 1b) multi-motor
+  $engineIds = @($health.engines | ForEach-Object { $_.id })
+  if ($engineIds -contains "kokoro") { Pass "motor Kokoro registrado ($(($health.engines | Where-Object { $_.id -eq 'kokoro' }).version))" }
+  else { Fail "el motor Kokoro no esta registrado" }
+  if ($engineIds -contains "piper") {
+    $piperReport = $health.engines | Where-Object { $_.id -eq "piper" }
+    Pass "motor Piper registrado ($($piperReport.version) · $($piperReport.voicesReady)/$($piperReport.voicesTotal) voces listas)"
+    if ($piperReport.espeak -ne $null) { Fail "Piper no deberia depender del espeak-ng del sistema" }
+  } elseif ($SkipPiper) {
+    Say "  SKIP  Piper desactivado por parametro (-SkipPiper)." "Yellow"
+  } else {
+    Fail "el motor Piper no esta registrado (revisa VOICE_PIPER_DISABLED o npm run voice:setup)"
+  }
+
   # -------------------------------------------------------------- 2) voces
   Say "`n[2] Voces en espanol" "Cyan"
   $voicesResponse = Invoke-RestMethod -Uri "$BaseUrl/voices" -TimeoutSec 60
@@ -113,6 +140,19 @@ try {
   Pass "detectadas ($($voicesResponse.source)): $($voiceIds -join ', ')"
   if ($voiceIds -contains $Voice) { Pass "la voz de prueba '$Voice' esta disponible" }
   else { Fail "la voz '$Voice' no esta en la lista" }
+
+  # Grupos por motor + metadatos verificados (nunca se inventa el genero).
+  $groupIds = @($voicesResponse.engines | ForEach-Object { $_.id })
+  if (($groupIds -contains "kokoro") -and ($groupIds -contains "piper")) { Pass "los dos grupos de motor existen: $($groupIds -join ', ')" }
+  else { Fail "faltan grupos de motor: $($groupIds -join ', ')" }
+
+  $unverified = @($voicesResponse.voices | Where-Object { $_.engine -eq "piper" -and $_.gender }) 
+  if ($unverified.Count -eq 0) { Pass "ninguna voz Piper inventa genero (gender queda sin especificar)" }
+  else { Fail "estas voces Piper muestran un genero sin respaldo: $($unverified.name -join ', ')" }
+
+  $noLicense = @($voicesResponse.voices | Where-Object { -not $_.license -or -not $_.sourceUrl })
+  if ($noLicense.Count -eq 0) { Pass "todas las voces traen licencia y fuente verificables" }
+  else { Fail "voces sin licencia/fuente: $($noLicense.id -join ', ')" }
 
   # ----------------------------------------------- 3) misma voz, 3 veces
   Say "`n[3] Consistencia: el mismo texto, 3 veces, con la misma voz" "Cyan"
@@ -141,8 +181,29 @@ try {
     else { Fail "se esperaban 3 archivos distintos y hay $distinct" }
   }
 
-  # ----------------------------------------------- 4) guion de parrafos
-  Say "`n[4] Chunking: guion de 3 parrafos" "Cyan"
+  # ------------------------------------------- 4) segundo motor (Piper)
+  Say "`n[4] Segundo motor: Piper (espanol latino)" "Cyan"
+  if ($SkipPiper -or -not ($engineIds -contains "piper")) {
+    Say "  SKIP  Piper no esta activo en este arranque." "Yellow"
+  } else {
+    $piperText = "Bienvenido a FullPOS Cloud. Esta narracion la genera el motor Piper."
+    $piperRun = Invoke-Synthesis -Text $piperText -VoiceName $PiperVoice -EngineId "piper"
+    $piperChecked = Assert-AudioFile -Label "piper ($PiperVoice)" -Result $piperRun
+    if ($piperChecked) {
+      if ($piperRun.engine -eq "piper") { Pass "el manifiesto declara el motor piper (no se confunde con Kokoro)" }
+      else { Fail "el motor reportado es '$($piperRun.engine)' en lugar de piper" }
+      if ([int]$piperRun.sampleRate -eq 22050) { Pass "frecuencia de muestreo correcta para Piper (22 050 Hz)" }
+      else { Fail "frecuencia inesperada para Piper: $($piperRun.sampleRate)" }
+      if ($runs.Count -ge 1) {
+        $delta = [math]::Abs($piperChecked.Duration - $runs[0].Duration)
+        if ($delta -gt 0.1) { Pass "Piper y Kokoro generan audio distinto con el mismo texto ($($piperChecked.Duration) s vs $($runs[0].Duration) s)" }
+        else { Fail "Piper y Kokoro produjeron la misma duracion: puede estar usando el mismo motor" }
+      }
+    }
+  }
+
+  # ----------------------------------------------- 5) guion de parrafos
+  Say "`n[5] Chunking: guion de 3 parrafos" "Cyan"
   $paragraphs = @(
     "Bienvenido a FullPOS Cloud. En este tutorial aprenderas a configurar tu negocio.",
     "Primero registra tu empresa y tus productos. Despues podras facturar en segundos.",
@@ -168,8 +229,8 @@ try {
     else { Fail "el guion largo no duro mas que el corto" }
   }
 
-  # ------------------------------------------------------------ 5) MP3
-  Say "`n[5] MP3 (solo si hay FFmpeg)" "Cyan"
+  # ------------------------------------------------------------ 6) MP3
+  Say "`n[6] MP3 (solo si hay FFmpeg)" "Cyan"
   if ($health.formats -contains "mp3") {
     $mp3 = Invoke-Synthesis -Text "Prueba de formato MP3 desde el estudio de voz." -Format "mp3" -PauseMs 0
     $mp3Checked = Assert-AudioFile -Label "mp3" -Result $mp3

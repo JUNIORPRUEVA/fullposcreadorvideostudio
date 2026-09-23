@@ -7,19 +7,48 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Voice:
+    """Una voz concreta de un motor.
+
+    `id` es el identificador NATIVO del motor (ef_dora, es_AR-daniela-high) y `key`
+    anade el motor para que sea unico en toda la aplicacion (piper:es_MX-ald-medium).
+
+    `gender` es None cuando la fuente oficial NO lo especifica: no se inventa.
+    """
+
     id: str
     name: str
-    gender: str  # "Femenina" | "Masculina"
-    language: str  # "es"
+    gender: str | None = "Desconocida"
+    language: str = "es"
+    engine: str = "kokoro"
+    locale: str | None = None
+    region: str | None = None
+    quality: str | None = None
+    license: str | None = None
+    commercial_ok: bool | None = None
+    source_url: str | None = None
+    available: bool = True
+    note: str | None = None
 
-    def as_dict(self, engine: str) -> dict:
+    @property
+    def key(self) -> str:
+        return f"{self.engine}:{self.id}"
+
+    def as_dict(self, engine: str | None = None) -> dict:
         return {
             "id": self.id,
+            "key": self.key,
+            "engine": engine or self.engine,
             "name": self.name,
             "gender": self.gender,
             "language": self.language,
-            "engine": engine,
-            "available": True,
+            "locale": self.locale,
+            "region": self.region,
+            "quality": self.quality,
+            "license": self.license,
+            "commercialOk": self.commercial_ok,
+            "sourceUrl": self.source_url,
+            "available": self.available,
+            "note": self.note,
         }
 
 
@@ -30,6 +59,8 @@ class SynthesisRequest:
     speed: float = 1.0
     pause_ms: int = 300
     format: str = "wav"
+    # Motor TTS. Vacio = se busca la voz en todos los motores disponibles.
+    engine: str = ""
 
     @classmethod
     def from_payload(cls, payload: dict) -> "SynthesisRequest":
@@ -37,12 +68,14 @@ class SynthesisRequest:
         raw_speed = payload.get("speed", 1.0)
         raw_pause = payload.get("pauseMs", payload.get("pause_ms", 300))
         raw_format = payload.get("format", "wav")
+        raw_engine = payload.get("engine", "")
         return cls(
             text=payload.get("text") if isinstance(payload.get("text"), str) else "",
             voice=payload.get("voice") if isinstance(payload.get("voice"), str) else "",
             speed=float(raw_speed) if isinstance(raw_speed, (int, float)) and not isinstance(raw_speed, bool) else 1.0,
             pause_ms=int(raw_pause) if isinstance(raw_pause, int) and not isinstance(raw_pause, bool) else 300,
             format=raw_format.strip().lower() if isinstance(raw_format, str) else "wav",
+            engine=raw_engine.strip().lower() if isinstance(raw_engine, str) else "",
         )
 
 
