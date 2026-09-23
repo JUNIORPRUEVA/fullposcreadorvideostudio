@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { EngineStatusCard, VoiceSelectGroups, VoiceStudioClient, VoiceStudioError, VoiceStudioResult } from "./VoiceStudioClient";
+import { EngineStatusCard, VoiceSelectGroups, VoiceStudioClient, VoiceStudioError, VoiceStudioLoginHint, VoiceStudioResult } from "./VoiceStudioClient";
 import type { VoiceGenerationView } from "./voice-studio-state";
 
 const API_URL = "http://localhost:4000";
@@ -176,6 +176,15 @@ test("el aviso de motor caido explica que hacer", () => {
   assert.match(html, /Motor de voz no disponible/);
   assert.match(html, /El motor Kokoro no esta instalado/);
   assert.match(html, /npm run voice:setup/);
+  assert.match(html, /Open-Voice-Studio\.cmd/);
+  assert.match(html, /Install-Voice-Studio\.cmd/);
+});
+
+test("cuando falta la sesion la pagina manda a iniciar sesion en el estudio", () => {
+  const html = renderToStaticMarkup(<VoiceStudioLoginHint />);
+  assert.match(html, /data-testid="voice-login-hint"/);
+  assert.match(html, /href="\/"/);
+  assert.match(html, /Entra al estudio principal/);
 });
 
 // ------------------------------------------- filtros y grupos por motor

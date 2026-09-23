@@ -389,8 +389,9 @@ Resultados de referencia (2026-09-22, este equipo):
 
 | Síntoma | Causa y solución |
 | --- | --- |
-| «El motor de voz local no está disponible» (503) | El proceso está apagado. `npm run voice:dev`. |
-| «El motor Kokoro no está instalado» | Falta el entorno: `npm run voice:setup`. |
+| «El motor de voz local no está disponible» (503) o «Motor de voz no disponible» | El motor se apagó (por ejemplo al cerrar la consola que lo lanzó). **Doble clic en `Open-Voice-Studio.cmd`**: lo vuelve a arrancar y reutiliza el API y la web si ya están. También `npm run voice:dev` / `npm run voice:studio`. |
+| «El motor Kokoro no está instalado» | Falta el entorno: **doble clic en `Install-Voice-Studio.cmd`** (o `npm run voice:setup`). |
+| «La sesion expiro. Vuelve a entrar al estudio» | Falta el token del estudio en este navegador. Entra a <http://localhost:3000/>, inicia sesión (correo y contraseña de dueño) y vuelve a `/voice-studio`; la sesión es la misma. |
 | «espeak-ng no disponible» | `npm run voice:setup` (instala `espeakng-loader`) o instala eSpeak NG en el sistema. |
 | MP3 deshabilitado | No se encontró FFmpeg. El WAV funciona igual; instala FFmpeg para MP3. |
 | La primera generación tarda mucho | El modelo se carga una sola vez (30–60 s la primera vez). Las siguientes son inmediatas. |

@@ -100,6 +100,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
   const [preview, setPreview] = useState<VoiceGenerationView | null>(null);
   const [savedVoiceId, setSavedVoiceId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loginNeeded, setLoginNeeded] = useState(false);
   const [folderBusy, setFolderBusy] = useState(false);
 
   const counter = useMemo(() => countText(script), [script]);
@@ -145,7 +146,12 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
       } catch {
         payload = null;
       }
-      if (!response.ok) throw new ApiError(response.status, describeApiError(response.status, payload, apiUrl));
+      if (!response.ok) {
+        // 401/403: sin sesion del estudio no hay nada que hacer aqui dentro.
+        setLoginNeeded(response.status === 401 || response.status === 403);
+        throw new ApiError(response.status, describeApiError(response.status, payload, apiUrl));
+      }
+      setLoginNeeded(false);
       return payload;
     },
     [apiUrl]
@@ -331,6 +337,7 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
       <EngineStatusCard health={health} engineLabel={primaryEngineLabel} notice={notice} apiUrl={apiUrl} />
 
       {error ? <VoiceStudioError message={error} /> : null}
+      {loginNeeded ? <VoiceStudioLoginHint /> : null}
 
       <section className="card voiceStudioScript">
         <div className="panelTitle">
@@ -577,12 +584,23 @@ export function EngineStatusCard({
           <li>Formatos: {health.formats.join(", ")}</li>
         </ul>
       ) : (
-        <p className="fieldHint">
-          Arranca el motor local con <code>npm run voice:dev</code>. Si nunca se instalo, ejecuta{" "}
-          <code>npm run voice:setup</code>.
+        <p className="fieldHint" data-testid="voice-engine-help">
+          Arranca el motor de voz con doble clic en <code>Open-Voice-Studio.cmd</code> (en la carpeta del
+          proyecto). Si es la primera vez, instala con doble clic en <code>Install-Voice-Studio.cmd</code>.
+          Desde consola: <code>npm run voice:dev</code> y <code>npm run voice:setup</code>.
         </p>
       )}
     </section>
+  );
+}
+
+/** Sesion ausente o caducada: el camino es entrar al estudio principal y volver. */
+export function VoiceStudioLoginHint() {
+  return (
+    <p className="fieldHint" data-testid="voice-login-hint">
+      Necesitas la sesion del estudio. <a href="/">Entra al estudio principal</a>, inicia sesion y vuelve a
+      esta pagina.
+    </p>
   );
 }
 
