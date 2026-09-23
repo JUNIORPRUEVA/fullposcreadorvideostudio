@@ -39,7 +39,7 @@ npm run voice:studio -- -NoBrowser   # sin abrir el navegador
 ```
 
 Para que el arranque tenga sentido, la primera vez (una sola vez) hay que instalar el
-entorno: `npm run voice:setup`.
+entorno: **doble clic en `Install-Voice-Studio.cmd`** (o `npm run voice:setup`).
 
 ### Modo desarrollador (paso a paso)
 
@@ -152,11 +152,23 @@ Se fijan en `voice-engine/requirements.txt` (runtime) y `voice-engine/requiremen
 
 ## 3. Instalación
 
+**La forma fácil (Windows):** doble clic en `Install-Voice-Studio.cmd`, en la raíz del
+repositorio. Comprueba Node.js, ejecuta `npm install` si falta y llama a `voice:setup`.
+Es idempotente: si ya está instalado, solo verifica y termina rápido. La primera vez
+tarda varios minutos (~1 GB de descargas) y **no necesita permisos de administrador**.
+
+> **Cierra el estudio antes de instalar** (`Stop-Voice-Studio.cmd`). `voice:setup` recrea
+> `voice-engine\.venv`, así que un motor que esté ejecutándose desde ese entorno se cae
+> durante la instalación. Después: `Open-Voice-Studio.cmd` otra vez.
+
+Desde consola, lo mismo:
+
 ```powershell
-npm run voice:setup
+npm install            # dependencias de JavaScript (una sola vez)
+npm run voice:setup    # motor: Python 3.12 + kokoro + piper + modelos
 ```
 
-Qué hace, en orden:
+Qué hace `voice:setup`, en orden:
 
 1. Verifica que exista un Python base en el PATH.
 2. Instala `uv` (si falta) y obtiene **CPython 3.12** para el usuario.
@@ -384,6 +396,7 @@ Resultados de referencia (2026-09-22, este equipo):
 | La primera generación tarda mucho | El modelo se carga una sola vez (30–60 s la primera vez). Las siguientes son inmediatas. |
 | «El motor de voz no respondió en 900 s» | El guion es muy largo para CPU. Divide el guion o sube `VOICE_ENGINE_TIMEOUT_MS`. |
 | El puerto 4310 está ocupado | `npm run voice:dev -- -Port 4311` y `VOICE_ENGINE_URL=http://127.0.0.1:4311` en el API. |
+| Acabo de instalar/actualizar el motor y el estudio dejó de responder | `voice:setup` recrea el `.venv` y tumba el motor que corría dentro. Vuelve a abrir con `Open-Voice-Studio.cmd` (o `npm run voice:studio`). |
 | «No se pudo guardar la voz FullPOS» | La base de datos no responde (túnel SSH). Se guarda en el navegador; el resto sigue funcionando. |
 | El audio no suena en la página | El token del estudio cambió: recarga y vuelve a entrar. Las URLs firmadas caducan en 15 minutos. |
 | «Abrir carpeta» no hace nada / da error | Es una función local de Windows (el servidor abre el Explorador). En otros sistemas responde 503 explicándolo; desde otra máquina no aplica. |

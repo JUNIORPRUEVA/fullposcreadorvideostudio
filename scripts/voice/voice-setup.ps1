@@ -87,11 +87,17 @@ $Verify = @'
 import json, sys
 from importlib.metadata import version
 report = {"python": sys.version.split()[0]}
-for name in ("torch", "kokoro", "piper", "onnxruntime", "numpy", "soundfile", "fastapi", "uvicorn", "espeakng-loader"):
+# Ojo: el modulo se importa como `piper`, pero la distribucion se llama `piper-tts`.
+for name in ("torch", "kokoro", "piper-tts", "onnxruntime", "numpy", "soundfile", "fastapi", "uvicorn", "espeakng-loader"):
     try:
         report[name] = version(name)
     except Exception as error:
         report[name] = f"FALTA ({error})"
+try:
+    import piper  # modulo real del runtime Piper
+    report["piperModule"] = "ok"
+except Exception as error:
+    report["piperModule"] = f"FALTA ({error})"
 from voice_engine.espeak import configure_espeak
 status = configure_espeak()
 report["espeak"] = status.as_dict()
