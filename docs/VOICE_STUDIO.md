@@ -41,6 +41,20 @@ npm run voice:studio -- -NoBrowser   # sin abrir el navegador
 Para que el arranque tenga sentido, la primera vez (una sola vez) hay que instalar el
 entorno: **doble clic en `Install-Voice-Studio.cmd`** (o `npm run voice:setup`).
 
+### Sesión: no hay que iniciar sesión cada vez
+
+El estudio tiene un único dueño y guarda la sesión en el navegador
+(`localStorage.videoStudioToken`), igual para el editor y para `/voice-studio`:
+
+- El token dura **`AUTH_TOKEN_TTL_DAYS`** días (30 por defecto; en esta máquina `3650`) y
+  **se renueva solo**: al abrir el estudio y al volver a la pestaña (como mucho una
+  comprobación cada 5 minutos) el API devuelve un token nuevo si al actual le queda menos
+  de la mitad de su vida. Mientras se use el estudio, la sesión no caduca.
+- Si un token deja de servir, la web lo descarta sola y muestra la pantalla de acceso con el
+  aviso «La sesión caducó. Vuelve a entrar».
+- Se cierra a mano con **Salir**, al final de la barra lateral del estudio.
+- Cambiar `AUTH_TOKEN_TTL_DAYS` en `apps/api/.env` requiere reiniciar el API.
+
 ### Modo desarrollador (paso a paso)
 
 ```powershell
@@ -391,7 +405,7 @@ Resultados de referencia (2026-09-22, este equipo):
 | --- | --- |
 | «El motor de voz local no está disponible» (503) o «Motor de voz no disponible» | El motor se apagó (por ejemplo al cerrar la consola que lo lanzó). **Doble clic en `Open-Voice-Studio.cmd`**: lo vuelve a arrancar y reutiliza el API y la web si ya están. También `npm run voice:dev` / `npm run voice:studio`. |
 | «El motor Kokoro no está instalado» | Falta el entorno: **doble clic en `Install-Voice-Studio.cmd`** (o `npm run voice:setup`). |
-| «La sesion expiro. Vuelve a entrar al estudio» | Falta el token del estudio en este navegador. Entra a <http://localhost:3000/>, inicia sesión (correo y contraseña de dueño) y vuelve a `/voice-studio`; la sesión es la misma. |
+| «La sesion expiro. Vuelve a entrar al estudio» | El token de este navegador ya no sirve (se borró el almacenamiento local, o pasó más de `AUTH_TOKEN_TTL_DAYS` sin abrir el estudio). Entra a <http://localhost:3000/>, inicia sesión y vuelve a `/voice-studio`; la sesión es la misma. |
 | «espeak-ng no disponible» | `npm run voice:setup` (instala `espeakng-loader`) o instala eSpeak NG en el sistema. |
 | MP3 deshabilitado | No se encontró FFmpeg. El WAV funciona igual; instala FFmpeg para MP3. |
 | La primera generación tarda mucho | El modelo se carga una sola vez (30–60 s la primera vez). Las siguientes son inmediatas. |
@@ -424,7 +438,9 @@ Resultados de referencia (2026-09-22, este equipo):
 - El motor **no** está incluido en el `F5`/`npm run dev:studio`; el launcher
   (`Open-Voice-Studio.cmd`) sí lo arranca, pero se mantiene desacoplado del editor de video.
 - Sin autenticación propia: el motor solo escucha en `127.0.0.1` y el API reutiliza la
-  sesión del estudio (`videoStudioToken`).
+  sesión del estudio (`videoStudioToken`). Esa sesión es **persistente y deslizante**: vive
+  en `localStorage`, se renueva mientras el estudio se use y solo se pierde si caduca
+  (`AUTH_TOKEN_TTL_DAYS`), si se borra el almacenamiento del navegador o si se pulsa *Salir*.
 
 ---
 

@@ -1,6 +1,16 @@
 $ErrorActionPreference = "SilentlyContinue"
 
-$PidFile = Join-Path (Resolve-Path ".").Path "storage\temp\logs\local-servers.pids.json"
+$Root = (Resolve-Path ".").Path
+$LogsDir = Join-Path $Root "storage\temp\logs"
+$TunnelPidFile = Join-Path $LogsDir "studio-db-tunnel.pid"
+if (Test-Path $TunnelPidFile) {
+  $TunnelPid = (Get-Content -Raw $TunnelPidFile).Trim()
+  taskkill.exe /PID $TunnelPid /T /F | Out-Null
+  Remove-Item -LiteralPath $TunnelPidFile -Force
+  Write-Output "Stopped studio-db tunnel pid $TunnelPid"
+}
+
+$PidFile = Join-Path $LogsDir "local-servers.pids.json"
 if (!(Test-Path $PidFile)) {
   Write-Output "No managed local server PID file found."
   exit 0

@@ -1,5 +1,8 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { assertDestructiveDbAllowed } from "./dev/db-guard.mjs";
+
+assertDestructiveDbAllowed("npm run db:init (creates/initializes a local SQLite database)");
 
 const dbPath = path.resolve("apps/api/prisma/dev.db").replaceAll("\\", "/");
 process.env.DATABASE_URL = `file:${dbPath}`;

@@ -3,8 +3,17 @@ import type { Response } from "express";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { audioRoot, projectRoot } from "../lib/paths.js";
+import { signMediaUrl } from "../lib/media-signature.js";
+import { authSecret } from "../auth/auth.service.js";
 import { AudioService } from "./audio.service.js";
 import { VoiceGenerationService } from "./voice-generation.service.js";
+
+/* Un <audio>/<video> no puede enviar la cabecera Authorization: las URLs que el
+ * navegador va a cargar se devuelven firmadas (HMAC + caducidad corta). */
+function signed(pathname: string) {
+  const secret = authSecret();
+  return secret ? signMediaUrl(pathname, secret) : pathname;
+}
 
 @Controller("audio")
 export class AudioController {
@@ -29,8 +38,10 @@ export class AudioController {
   }
 
   @Get("music-library")
-  listMusicLibrary() {
-    return this.audio.listMusicLibrary();
+  async listMusicLibrary() {
+    const tracks = await this.audio.listMusicLibrary();
+    // Cada pista trae su URL ya firmada para poder escucharla en el navegador.
+    return tracks.map((track) => ({ ...track, url: signed(`/audio/music/${track.id}/file`) }));
   }
 
   @Get("music/:id/file")
@@ -44,18 +55,19 @@ export class AudioController {
   }
 
   @Post("voice-preview")
-  preview(@Body() body: Record<string, unknown>) {
+  async preview(@Body() body: Record<string, unknown>) {
     const text = typeof body.text === "string" && body.text.trim() ? body.text.trim().slice(0, 240) : "Presenta tu marca con una voz clara, cercana y profesional.";
     const voice = typeof body.voice === "string" ? body.voice : "";
     const voiceProfile = typeof body.voiceProfile === "string" ? body.voiceProfile : "dominican-promotional";
     const speed = typeof body.speed === "number" ? Math.max(0.9, Math.min(1.1, body.speed)) : 1;
-    return this.audio.createPreview({ text, voice, voiceProfile, speed });
+    const result = await this.audio.createPreview({ text, voice, voiceProfile, speed });
+    return { ...result, url: signed(result.url) };
   }
 
   @Post("mix-preview")
-  mixPreview(@Body() body: Record<string, unknown>) {
+  async mixPreview(@Body() body: Record<string, unknown>) {
     const text = typeof body.text === "string" && body.text.trim() ? body.text.trim().slice(0, 360) : "Presenta tu marca con un video claro, moderno y profesional.";
-    return this.audio.createMixPreview({
+    const result = await this.audio.createMixPreview({
       text,
       voice: typeof body.voice === "string" ? body.voice : "",
       voiceProfile: typeof body.voiceProfile === "string" ? body.voiceProfile : "dominican-promotional",
@@ -66,6 +78,7 @@ export class AudioController {
       customMusicPath: typeof body.customMusicPath === "string" ? body.customMusicPath : undefined,
       musicVolume: typeof body.musicVolume === "number" ? Math.max(0, Math.min(1, body.musicVolume)) : 0.15
     });
+    return { ...result, url: signed(result.url) };
   }
 
   @Get("previews/:id/file")

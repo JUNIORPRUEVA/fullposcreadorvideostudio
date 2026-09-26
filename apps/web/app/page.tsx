@@ -17,6 +17,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Mic,
   MousePointer,
   MoreVertical,
   Pencil,
@@ -30,9 +31,24 @@ import {
   Square,
   Trash2,
   Upload,
-  X
+  X,
+  ZoomIn
 } from "lucide-react";
 import type { AssetType, VideoType } from "@fullpos-ad-studio/shared";
+import {
+  assetReadiness,
+  idleMediaOperation,
+  isMediaOperationRunning,
+  isLatestResponse,
+  mediaOperationLabel,
+  mediaPanelStatus,
+  normalizeScene,
+  resolveSelectedScene,
+  shouldReplaceStarterStoryboard,
+  subtitleCues,
+  visibleStoryScenes,
+  type MediaOperation
+} from "./storyboard-state";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 type Section = "Dashboard" | "Crear video" | "Biblioteca" | "Proyectos" | "Videos" | "Marcas" | "Configuración";
@@ -150,6 +166,9 @@ type Project = {
   musicTrackId?: string;
   musicPath?: string;
   customMusicPath?: string;
+  /* URLs firmadas por el API para reproducir audio sin cabeceras. */
+  customMusicUrl?: string | null;
+  voiceReferenceUrl?: string | null;
   musicVolume: number;
   visualStyle: string;
   motionIntensity: string;
@@ -336,6 +355,8 @@ type MusicTrack = {
   source: string;
   commercialUse: boolean;
   quality: "DEMO" | "PRODUCTION-READY";
+  /* URL firmada por el API para poder escucharla sin cabeceras. */
+  url?: string;
 };
 
 type AuthStatus = {
@@ -448,9 +469,13 @@ export default function Home() {
   const [assetNames, setAssetNames] = useState<Record<string, string>>({});
   const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /* Operacion de medios en curso (subida/asociacion/commit). Mientras corre, la
+     UI se queda en el ultimo estado estable y solo muestra el progreso. */
+  const [mediaOperation, setMediaOperation] = useState<MediaOperation>(idleMediaOperation);
   const [message, setMessage] = useState({ type: "info", text: "Listo para crear un video." });
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authToken, setAuthToken] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [brandModal, setBrandModal] = useState<{ mode: "create" | "edit"; brand?: BrandProfile } | null>(null);
   const [brandForm, setBrandForm] = useState<BrandForm>(emptyBrandForm());
@@ -461,11 +486,40 @@ export default function Home() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const sceneSaveTimers = useRef<Record<string, number>>({});
   const scenePendingPatches = useRef<Record<string, Partial<StoryScene>>>({});
+  /* Secuencia de peticiones de proyectos para descartar respuestas viejas. */
+  const projectsRequestId = useRef(0);
+  /* Ultima revalidacion de la sesion, para no repetirla en cada cambio de pestaña. */
+  const lastSessionCheck = useRef(0);
 
   useEffect(() => {
     setAuthToken(window.localStorage.getItem("videoStudioToken") ?? "");
     setSidebarExpanded(window.localStorage.getItem("videoStudioSidebar") === "expanded");
     void loadAuthStatus();
+    void refreshSession();
+  }, []);
+
+  useEffect(() => {
+    function handleUnauthorized() {
+      setAuthToken("");
+      setSessionExpired(true);
+      setProjects([]);
+      setBrands([]);
+      setVideos([]);
+      setMobileSidebarOpen(false);
+    }
+    function handleVisibility() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastSessionCheck.current < SESSION_RECHECK_MS) return;
+      void refreshSession();
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+    // Solo al montar: las funciones usan setters estables y localStorage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -540,6 +594,24 @@ export default function Home() {
     }
   }
 
+  /**
+   * Revalida la sesion guardada. El API devuelve un token nuevo cuando al actual le queda
+   * menos de la mitad de su vida, asi que la sesion no caduca mientras se use el estudio.
+   * Si el token ya no sirve, el 401 lo descarta y vuelve la pantalla de acceso.
+   */
+  async function refreshSession() {
+    if (!window.localStorage.getItem("videoStudioToken")) return;
+    lastSessionCheck.current = Date.now();
+    try {
+      const result = await fetchJson<{ token?: string }>(`${API_URL}/auth/me`);
+      if (!result.token) return;
+      window.localStorage.setItem("videoStudioToken", result.token);
+      setAuthToken(result.token);
+    } catch {
+      // El 401 ya limpia el token y muestra el acceso; un fallo de red no cierra sesion.
+    }
+  }
+
   async function login() {
     try {
       setBusy("login");
@@ -551,6 +623,7 @@ export default function Home() {
       });
       window.localStorage.setItem("videoStudioToken", result.token);
       setAuthToken(result.token);
+      setSessionExpired(false);
       show("success", "Sesión iniciada.");
     } catch (error) {
       show("error", getErrorMessage(error));
@@ -562,6 +635,7 @@ export default function Home() {
   function logout() {
     window.localStorage.removeItem("videoStudioToken");
     setAuthToken("");
+    setSessionExpired(false);
     setProjects([]);
     setBrands([]);
     setVideos([]);
@@ -605,9 +679,15 @@ export default function Home() {
   }
 
   async function loadProjects() {
+    // latest-wins: una respuesta vieja no puede sobrescribir el estado final.
+    const requestId = ++projectsRequestId.current;
     try {
-      setProjects(await fetchJson<Project[]>(`${API_URL}/projects`));
+      const next = await fetchJson<Project[]>(`${API_URL}/projects`);
+      if (!isLatestResponse(requestId, projectsRequestId.current)) return;
+      // Los campos JSON de la escena llegan como texto desde la base de datos.
+      setProjects(next.map((project) => ({ ...project, scenes: (project.scenes ?? []).map(normalizeScene) })));
     } catch (error) {
+      if (!isLatestResponse(requestId, projectsRequestId.current)) return;
       show("error", `No se pudieron cargar los proyectos: ${getErrorMessage(error)}`);
     }
   }
@@ -689,21 +769,26 @@ export default function Home() {
     }
   }
 
-  async function ensureProject() {
+  async function ensureProject(options?: { quiet?: boolean }) {
+    const quiet = options?.quiet === true;
     if (projectId) {
-      await saveDraft(projectId, false);
+      await saveDraft(projectId, !quiet);
       return projectId;
     }
     validateDraft();
     const project = await fetchJson<Project>(`${API_URL}/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft)
+      body: JSON.stringify({ ...draft, starterStoryboard: false })
     });
     setProjectId(project.id);
     setRenderJob(null);
-    await refreshAll();
-    show("success", "Proyecto creado.");
+    // En una operacion de medios no refrescamos a medias: el flujo termina con
+    // su propia relectura autoritativa y un unico commit visual.
+    if (!quiet) {
+      await refreshAll();
+      show("success", "Proyecto creado.");
+    }
     return project.id;
   }
 
@@ -713,7 +798,7 @@ export default function Home() {
       const project = await fetchJson<Project>(`${API_URL}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft)
+        body: JSON.stringify({ ...draft, starterStoryboard: false })
       });
       setProjectId(project.id);
       await refreshAll();
@@ -771,17 +856,25 @@ export default function Home() {
     }
     try {
       setBusy("scene-media-batch");
-      const id = await ensureProject();
+      setMediaOperation({ stage: "UPLOADING", index: 1, total: validFiles.length, filename: validFiles[0].name });
+      const id = await ensureProject({ quiet: true });
       const currentProject = await fetchJson<Project>(`${API_URL}/projects/${id}`);
-      const orderedScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const starterScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const replacingStarter = shouldReplaceStarterStoryboard(starterScenes);
+      if (replacingStarter) {
+        await Promise.all(starterScenes.map((scene) => fetchJson(`${API_URL}/projects/${id}/scenes/${scene.id}`, { method: "DELETE" })));
+      }
+      const orderedScenes = replacingStarter ? [] : starterScenes;
       const insertIndex = insertAfterSceneId ? orderedScenes.findIndex((scene) => scene.id === insertAfterSceneId) + 1 : orderedScenes.length;
-      const chapter = insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
+      const chapter = replacingStarter ? defaultMediaChapter(currentProject.videoType, validFiles.length) : insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
       const createdIds: string[] = [];
       for (const [index, file] of validFiles.entries()) {
-        show("info", `Subiendo ${index + 1} de ${validFiles.length}: ${file.name}`);
+        // Un solo indicador contextual (el panel y el preview) en vez de toasts.
+        setMediaOperation({ stage: "UPLOADING", index: index + 1, total: validFiles.length, filename: file.name });
         const isVideo = file.type === "video/mp4" || file.type === "video/webm";
         const type: AssetType = isVideo ? "screen_recording" : "image";
         const asset = await uploadProjectAsset(id, type, file);
+        setMediaOperation({ stage: "ASSOCIATING", index: index + 1, total: validFiles.length, filename: file.name });
         const scene = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -799,25 +892,34 @@ export default function Home() {
         if (scene.mediaAssetId !== asset.id) throw new Error(`No se pudo asociar ${file.name} al paso creado.`);
         createdIds.push(scene.id);
       }
+      setMediaOperation({ stage: "COMMITTING", total: validFiles.length });
       const nextOrder = [
         ...orderedScenes.slice(0, insertIndex).map((scene) => scene.id),
         ...createdIds,
         ...orderedScenes.slice(insertIndex).map((scene) => scene.id)
       ];
-      await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: nextOrder })
-      });
+      // Si los pasos nuevos ya van al final el orden es correcto: evitamos una
+      // escritura extra (contra la DB remota cada request cuesta segundos).
+      if (insertIndex !== orderedScenes.length) {
+        await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: nextOrder })
+        });
+      }
       const verified = await fetchJson<Project>(`${API_URL}/projects/${id}`);
       const orphan = createdIds
         .map((sceneId) => verified.scenes?.find((scene) => scene.id === sceneId))
         .find((scene) => !scene?.mediaAssetId);
       if (orphan) throw new Error(`El paso "${orphan.title}" se guardó sin medio. No se marcará como cargado.`);
-      await refreshAll();
+      // Solo la lista de proyectos cambia con una subida: refrescar videos y
+      // marcas serian dos viajes extra innecesarios.
+      await loadProjects();
+      setMediaOperation(idleMediaOperation);
       show("success", `${validFiles.length} archivo${validFiles.length === 1 ? "" : "s"} agregado${validFiles.length === 1 ? "" : "s"} · ${createdIds.length} paso${createdIds.length === 1 ? "" : "s"} creado${createdIds.length === 1 ? "" : "s"}`);
       return createdIds;
     } catch (error) {
+      setMediaOperation({ stage: "ERROR", error: "No se pudo agregar la imagen. Reintentar." });
       show("error", getErrorMessage(error));
       return [];
     } finally {
@@ -846,10 +948,11 @@ export default function Home() {
     }
     try {
       setBusy(`scene-media-${sceneId}`);
-      const id = await ensureProject();
-      show("info", `Subiendo 1 de 1: ${file.name}`);
+      const id = await ensureProject({ quiet: true });
+      setMediaOperation({ stage: "UPLOADING", filename: file.name });
       const assetType: AssetType = isVideo ? "screen_recording" : "image";
       const asset = await uploadProjectAsset(id, assetType, file);
+      setMediaOperation({ stage: "ASSOCIATING", filename: file.name });
       const updated = await fetchJson<StoryScene>(`${API_URL}/projects/${id}/scenes/${sceneId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -865,10 +968,13 @@ export default function Home() {
       const savedScene = verified.scenes?.find((scene) => scene.id === sceneId);
       const savedAsset = verified.assets.find((item) => item.id === asset.id);
       if (savedScene?.mediaAssetId !== asset.id || !savedAsset) throw new Error(`La asociación de ${file.name} no quedó persistida.`);
-      await refreshAll();
+      setMediaOperation({ stage: "COMMITTING", filename: file.name });
+      await loadProjects();
+      setMediaOperation(idleMediaOperation);
       show("success", `${file.name} cargado y asociado al paso.`);
       return true;
     } catch (error) {
+      setMediaOperation({ stage: "ERROR", error: "No se pudo agregar la imagen. Reintentar." });
       show("error", getErrorMessage(error));
       return false;
     } finally {
@@ -879,7 +985,8 @@ export default function Home() {
   async function createStepsFromLibrary(insertAfterSceneId?: string) {
     try {
       setBusy("scene-library-batch");
-      const id = await ensureProject();
+      setMediaOperation({ stage: "ASSOCIATING" });
+      const id = await ensureProject({ quiet: true });
       const currentProject = await fetchJson<Project>(`${API_URL}/projects/${id}`);
       const mediaAssets = (currentProject.assets ?? []).filter((asset) => {
         const mime = asset.mimeType ?? "";
@@ -889,9 +996,14 @@ export default function Home() {
         show("info", "No hay medios en la biblioteca todavía. Sube imágenes o grabaciones primero.");
         return [];
       }
-      const orderedScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const starterScenes = [...(currentProject.scenes ?? [])].sort((a, b) => a.order - b.order);
+      const replacingStarter = shouldReplaceStarterStoryboard(starterScenes);
+      if (replacingStarter) {
+        await Promise.all(starterScenes.map((scene) => fetchJson(`${API_URL}/projects/${id}/scenes/${scene.id}`, { method: "DELETE" })));
+      }
+      const orderedScenes = replacingStarter ? [] : starterScenes;
       const insertIndex = insertAfterSceneId ? orderedScenes.findIndex((scene) => scene.id === insertAfterSceneId) + 1 : orderedScenes.length;
-      const chapter = insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
+      const chapter = replacingStarter ? defaultMediaChapter(currentProject.videoType, mediaAssets.length) : insertAfterSceneId ? orderedScenes.find((scene) => scene.id === insertAfterSceneId)?.chapter : orderedScenes.at(-1)?.chapter;
       const createdIds: string[] = [];
       for (const [index, asset] of mediaAssets.entries()) {
         const isVideo = Boolean(asset.mimeType?.startsWith("video/"));
@@ -911,20 +1023,25 @@ export default function Home() {
         });
         createdIds.push(scene.id);
       }
+      setMediaOperation({ stage: "COMMITTING" });
       const nextOrder = [
         ...orderedScenes.slice(0, insertIndex).map((scene) => scene.id),
         ...createdIds,
         ...orderedScenes.slice(insertIndex).map((scene) => scene.id)
       ];
-      await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: nextOrder })
-      });
-      await refreshAll();
+      if (insertIndex !== orderedScenes.length) {
+        await fetchJson(`${API_URL}/projects/${id}/scenes/reorder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: nextOrder })
+        });
+      }
+      await loadProjects();
+      setMediaOperation(idleMediaOperation);
       show("success", `${mediaAssets.length} medio${mediaAssets.length === 1 ? "" : "s"} elegido${mediaAssets.length === 1 ? "" : "s"} · ${createdIds.length} paso${createdIds.length === 1 ? "" : "s"} creado${createdIds.length === 1 ? "" : "s"}`);
       return createdIds;
     } catch (error) {
+      setMediaOperation({ stage: "ERROR", error: "No se pudieron agregar los medios. Reintentar." });
       show("error", getErrorMessage(error));
       return [];
     } finally {
@@ -1124,7 +1241,7 @@ export default function Home() {
       form.append("file", file);
       const project = await fetchJson<Project>(`${API_URL}/projects/${id}/music`, { method: "POST", body: form });
       setDraft(projectToDraft(project));
-      setCustomMusicUrl(`${API_URL}/projects/${project.id}/music/file`);
+      setCustomMusicUrl(project.customMusicUrl ?? `${API_URL}/projects/${project.id}/music/file`);
       await refreshAll();
       show("success", "Música cargada y asociada al proyecto.");
     } catch (error) {
@@ -1200,7 +1317,8 @@ export default function Home() {
       setActivePreview("");
       return;
     }
-    playAudio(`${API_URL}/audio/music/${track.id}/file`, key, 15);
+    // La URL viene firmada por el API (un <audio> no puede enviar el token).
+    playAudio(track.url ? `${API_URL}${track.url}` : `${API_URL}/audio/music/${track.id}/file`, key, 15);
   }
 
   function previewCustomMusic() {
@@ -1487,6 +1605,12 @@ export default function Home() {
     }
   }
 
+  /* El API firma la URL del MP4 (valida unos minutos), asi el tag <video>
+     puede pedirlo sin cabecera Authorization y se reproduce en streaming. */
+  function clearTrainingPreviewUrl() {
+    setTrainingPreviewUrl("");
+  }
+
   async function previewTrainingScene(sceneId?: string, chapter?: string) {
     if (!projectId) return show("info", "Guarda o abre un proyecto para previsualizar.");
     const previewBusyKey = sceneId ? `scene-preview-${sceneId}` : chapter ? `chapter-preview-${chapter}` : "full-preview";
@@ -1497,7 +1621,7 @@ export default function Home() {
         : "Generando vista previa completa...";
     try {
       setBusy(previewBusyKey);
-      setTrainingPreviewUrl("");
+      clearTrainingPreviewUrl();
       setTrainingPreviewState({ status: "loading", message: loadingMessage, mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
       const endpoint = draft.videoType === "COURSE" || draft.format === "16:9" ? "course-scene-preview" : "quick-tutorial-preview";
       const preview = await fetchJson<{ streamUrl: string }>(`${API_URL}/renders/${endpoint}`, {
@@ -1505,12 +1629,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, sceneId, chapter })
       });
-      setTrainingPreviewUrl(`${API_URL}${preview.streamUrl}`);
+      const objectUrl = `${API_URL}${preview.streamUrl}`;
+      setTrainingPreviewUrl(objectUrl);
       setTrainingPreviewState({ status: "ready", message: sceneId ? "Vista previa del paso lista." : chapter ? "Vista previa del capítulo lista." : "Vista previa completa lista.", mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
-      show("success", sceneId ? "Vista previa de escena generada." : chapter ? "Vista previa de capítulo generada." : "Vista previa completa generada.");
+      show("success", sceneId ? "Vista previa del Paso lista para reproducir." : chapter ? "Vista previa del capítulo lista para reproducir." : "Vista previa completa lista para reproducir.");
     } catch (error) {
       const message = getErrorMessage(error);
-      setTrainingPreviewUrl("");
+      clearTrainingPreviewUrl();
       setTrainingPreviewState({ status: "error", message, mode: sceneId ? "scene" : chapter ? "chapter" : "full", sceneId, chapter });
       show("error", `No se pudo generar la vista previa: ${message}`);
     } finally {
@@ -1525,10 +1650,10 @@ export default function Home() {
     setAiQuote(null);
     setAiJobs(project.aiVideoJobs ?? []);
     setPreviews({});
-    setTrainingPreviewUrl("");
+    clearTrainingPreviewUrl();
     setTrainingPreviewState({ status: "idle", message: "" });
     setAssetNames(Object.fromEntries(project.assets.map((asset) => [asset.type, asset.filename])));
-    setCustomMusicUrl(project.customMusicPath ? `${API_URL}/projects/${project.id}/music/file` : "");
+    setCustomMusicUrl(project.customMusicUrl ?? (project.customMusicPath ? `${API_URL}/projects/${project.id}/music/file` : ""));
     setSection("Crear video");
     setStep(1);
     show("info", `Proyecto abierto: ${project.name}`);
@@ -1589,7 +1714,7 @@ export default function Home() {
     setCustomMusicUrl("");
     setVoicePreviewUrl("");
     setMixPreviewUrl("");
-    setTrainingPreviewUrl("");
+    clearTrainingPreviewUrl();
     setTrainingPreviewState({ status: "idle", message: "" });
     setAiQuote(null);
     setAiJobs([]);
@@ -1599,13 +1724,11 @@ export default function Home() {
   }
 
   function validateDraft() {
+    // Solo el nombre del proyecto y el producto son obligatorios: oferta, precio y sitio web
+    // son opcionales (una capacitación o un tutorial no siempre los necesitan).
     const required = [
       ["Nombre del proyecto", draft.name],
-      ["Producto", draft.productName],
-      ["Headline", draft.headline],
-      ["Oferta", draft.offer],
-      ["Precio", draft.price],
-      ["Website", draft.website]
+      ["Producto", draft.productName]
     ];
     const missing = required.find(([, value]) => !value.trim());
     if (missing) throw new Error(`${missing[0]} es obligatorio.`);
@@ -1631,16 +1754,19 @@ export default function Home() {
   }
 
   function validateStoryboardReady() {
-    const scenes = selectedProject?.scenes ?? [];
+    const scenes = visibleStoryScenes(selectedProject?.scenes ?? []);
     if (!scenes.length) throw new Error("Agrega al menos un paso en Editar antes de continuar.");
     const missingMedia = scenes.find((scene) => !scene.mediaAssetId);
     if (missingMedia) throw new Error(`El paso "${missingMedia.title}" no tiene imagen o video asociado.`);
   }
 
   function validateAssets() {
-    const uploaded = new Set([...(selectedProject?.assets.map((asset) => asset.type) ?? []), ...Object.keys(previews)]);
-    const missing = uploadFields.filter((field) => field.required && !uploaded.has(field.type)).map((field) => field.label);
-    if (missing.length) throw new Error(`Faltan recursos para un video premium: ${missing.join(", ")}.`);
+    const readiness = assetReadiness({
+      scenes: visibleStoryScenes(selectedProject?.scenes ?? []),
+      requiredFields: uploadFields,
+      uploadedTypes: [...(selectedProject?.assets.map((asset) => asset.type) ?? []), ...Object.keys(previews)]
+    });
+    if (!readiness.ok) throw new Error(readiness.message);
   }
 
   function goToStep(nextStep: number) {
@@ -1660,8 +1786,9 @@ export default function Home() {
           <div className="brandMark">VS</div>
           <h1>FullPOS Video Studio</h1>
           <p className="muted">Inicia sesión para administrar marcas, proyectos y videos.</p>
+          {sessionExpired ? <div className="notice error">La sesión caducó. Vuelve a entrar; después ya no se pedirá de nuevo.</div> : null}
           {!authStatus.ownerConfigured ? <div className="notice error">El propietario inicial no está configurado. Define OWNER_EMAIL y OWNER_PASSWORD en el backend.</div> : null}
-          <label className="field"><span>Email</span><input value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} /></label>
+          <label className="field"><span>Correo electrónico</span><input value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} /></label>
           <label className="field"><span>Contraseña</span><input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} /></label>
           <button className="primary" type="button" disabled={busy === "login" || !authStatus.ownerConfigured} onClick={() => void login()}>Entrar</button>
         </section>
@@ -1670,6 +1797,7 @@ export default function Home() {
   }
 
   const isMainEditorMode = section === "Crear video" && step === 3;
+  const isConfigMode = section === "Crear video" && (step === 1 || step === 2);
 
   return (
     <div className={`shell ${sidebarExpanded ? "sidebarExpanded" : "sidebarCollapsed"} ${mobileSidebarOpen ? "mobileNavOpen" : ""}`}>
@@ -1713,28 +1841,70 @@ export default function Home() {
               <span className="navTooltip" aria-hidden="true">Salir</span>
             </button>
           ) : null}
+          {/* Fase 1: herramienta de narracion local. Vive fuera del editor de video. */}
+          <a className="navItem" href="/voice-studio" aria-label="Voice Studio" title="Voice Studio">
+            <Mic size={21} strokeWidth={2} />
+            <span className="navLabel">Voice Studio</span>
+            <span className="navTooltip" aria-hidden="true">Voice Studio</span>
+          </a>
         </nav>
       </aside>
 
-      <main className={`main ${isMainEditorMode ? "mainEditorMode" : ""}`}>
-        <section className="topbar">
+      <main className={`main ${isMainEditorMode ? "mainEditorMode" : ""} ${isConfigMode ? "configMode" : ""}`}>
+        <section className={`topbar ${section === "Crear video" ? "topbarWithSteps" : ""}`}>
           <button className="mobileMenuButton secondary iconButton" type="button" aria-label="Abrir menú" onPointerDown={openMobileSidebar} onMouseDown={openMobileSidebar} onClick={openMobileSidebar}>
             <Menu size={20} />
           </button>
-          <div className="title">
-            <h1>{section}</h1>
-            {sectionSubtitle(section) ? <p>{sectionSubtitle(section)}</p> : null}
+          <div className="topbarMain">
+            <div className="title">
+              <h1>{section}</h1>
+              {!isConfigMode && !isMainEditorMode && sectionSubtitle(section) ? <p>{sectionSubtitle(section)}</p> : null}
+            </div>
+            {section === "Crear video" ? (
+              isMainEditorMode ? (
+                <span className="appbarChip appbarProject" title={`${draft.name} · ${draft.productName} · ${videoTypeLabel(draft.videoType)}`}>
+                  <strong>{draft.name || "Proyecto sin nombre"}</strong>
+                  <small>{draft.productName ? `${draft.productName} · ` : ""}{videoTypeLabel(draft.videoType)} · {draft.format}</small>
+                </span>
+              ) : (
+                <span className="appbarChip">{videoTypeLabel(draft.videoType)}</span>
+              )
+            ) : null}
           </div>
+          {section === "Crear video" ? (
+            <div className="steps appbarSteps">
+              {["Configuración", "Contenido", "Editar", "Voz y música", "Exportar"].map((label, index) => (
+                <button key={label} type="button" className={`step ${step === index + 1 ? "active" : ""}`} onClick={() => goToStep(index + 1)}>
+                  {index + 1}. {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="rowActions">
-            <button className="primary" type="button" onClick={resetDraft}>
-              <Plus size={18} />
-              Crear video
-            </button>
-            {authStatus?.authRequired ? <button className="secondary headerLogout" type="button" onClick={logout}><LogOut size={18} />Salir</button> : null}
+            {isMainEditorMode ? (
+              <>
+                {latestJob ? (
+                  <div className={`renderPill ${latestJob.status === "COMPLETED" ? "ready" : ""}`}>
+                    <span>{renderStage(latestJob)}</span>
+                    <small>{latestJob.progress}%</small>
+                    {streamUrl ? <a href={streamUrl} target="_blank">Ver</a> : null}
+                  </div>
+                ) : null}
+                <button className="primary" type="button" disabled={!selectedProject || !(selectedProject.scenes?.length) || busy === "full-preview"} onClick={() => void previewTrainingScene()}>
+                  {busy === "full-preview" ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}
+                  {busy === "full-preview" ? "Generando..." : "Vista previa completa"}
+                </button>
+              </>
+            ) : (
+              <button className="primary" type="button" onClick={resetDraft}>
+                <Plus size={18} />
+                Crear video
+              </button>
+            )}
           </div>
         </section>
 
-        <div className={`notice ${message.type}`}>{message.text}</div>
+        {message.text ? <div className={`notice ${message.type}`}>{message.text}</div> : null}
 
         {section === "Dashboard" && (
           <>
@@ -1765,28 +1935,8 @@ export default function Home() {
                   <strong>{draft.name}</strong>
                   <span>{draft.productName} · {videoTypeLabel(draft.videoType)} · {draft.format}</span>
                 </div>
-                <div className="editorHeaderActions">
-                  {step === 3 ? (
-                    <button className="primary" type="button" disabled={!selectedProject || !(selectedProject.scenes?.length) || busy === "full-preview"} onClick={() => void previewTrainingScene()}>
-                      {busy === "full-preview" ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}
-                      {busy === "full-preview" ? "Generando..." : "Vista previa completa"}
-                    </button>
-                  ) : null}
-                  <div className={`renderPill ${latestJob?.status === "COMPLETED" ? "ready" : ""}`}>
-                    <span>{latestJob ? renderStage(latestJob) : "Sin preview"}</span>
-                    {latestJob ? <small>{latestJob.progress}%</small> : null}
-                    {streamUrl ? <a href={streamUrl} target="_blank">Ver</a> : null}
-                  </div>
-                </div>
               </div>
-              <div className="steps">
-                {["Configuración", "Contenido", "Editar", "Voz y música", "Exportar"].map((label, index) => (
-                  <button key={label} type="button" className={`step ${step === index + 1 ? "active" : ""}`} onClick={() => goToStep(index + 1)}>
-                    {index + 1}. {label}
-                  </button>
-                ))}
-              </div>
-
+              <div className="stepBody">
               {step === 1 && (
                 <VideoTypeStep
                   draft={draft}
@@ -1804,7 +1954,7 @@ export default function Home() {
                 />
               )}
               {step === 2 && <InfoStep draft={draft} setDraft={setDraft} />}
-              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} previewUrl={trainingPreviewUrl} previewState={trainingPreviewState} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onClearPreview={() => { setTrainingPreviewUrl(""); setTrainingPreviewState({ status: "idle", message: "" }); }} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
+              {step === 3 && <StoryboardStep project={selectedProject} busy={busy} operation={mediaOperation} previewUrl={trainingPreviewUrl} previewState={trainingPreviewState} onAddScene={addScene} onDuplicateScene={duplicateScene} onDeleteScene={deleteScene} onUpdateScene={(sceneId, patch) => void updateScene(sceneId, patch)} onMoveScene={(sceneId, direction) => void moveScene(sceneId, direction)} onPreviewScene={(sceneId) => void previewTrainingScene(sceneId)} onPreviewChapter={(chapter) => void previewTrainingScene(undefined, chapter)} onPreviewFull={() => void previewTrainingScene()} onClearPreview={() => { clearTrainingPreviewUrl(); setTrainingPreviewState({ status: "idle", message: "" }); }} onUploadSceneMedia={(sceneId, files) => uploadSceneMedia(sceneId, files)} onAssignSceneMedia={(sceneId, files) => assignMediaToScene(sceneId, files)} onCreateStepsFromLibrary={(sceneId) => createStepsFromLibrary(sceneId)} />}
               {step === 4 && (
                 <AudioStep
                   draft={draft}
@@ -1866,6 +2016,7 @@ export default function Home() {
                   </div>
                 </div>
               )}
+              </div>
 
               <div className="actions">
                 <button className="secondary" type="button" disabled={step === 1} onClick={() => goToStep(Math.max(1, step - 1))}>Atrás</button>
@@ -2153,9 +2304,9 @@ function BrandModal({ mode, form, setForm, logoPreview, busy, onLogo, onClose, o
         <div className="modalSection">
           <strong>Información</strong>
           <div className="formGrid compact">
-            <Field label="Website" value={form.website} onChange={(website) => setForm({ ...form, website })} />
+            <Field label="Sitio web" value={form.website} onChange={(website) => setForm({ ...form, website })} />
             <Field label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
-            <Field label="Email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+            <Field label="Correo electrónico" value={form.email} onChange={(email) => setForm({ ...form, email })} />
           </div>
         </div>
 
@@ -2201,14 +2352,24 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 
 function InfoStep({ draft, setDraft }: { draft: Draft; setDraft: (draft: Draft) => void }) {
   return (
-    <div className="formGrid">
-      <Field label="Nombre del proyecto" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-      <Field label="Producto" value={draft.productName} onChange={(value) => setDraft({ ...draft, productName: value })} />
-      <Field label="Headline" value={draft.headline} onChange={(value) => setDraft({ ...draft, headline: value })} />
-      <Field label="Texto secundario" value={draft.subheadline} onChange={(value) => setDraft({ ...draft, subheadline: value })} />
-      <Field label="Oferta" value={draft.offer} onChange={(value) => setDraft({ ...draft, offer: value })} />
-      <Field label="Precio" value={draft.price} onChange={(value) => setDraft({ ...draft, price: value })} />
-      <Field label="Website" value={draft.website} onChange={(value) => setDraft({ ...draft, website: value })} full />
+    <div className="configStep">
+      <section className="configGroup">
+        <div className="sectionHeader">
+          <div>
+            <strong>Contenido del video</strong>
+            <p className="muted">Textos que aparecerán en el video. Solo el nombre del proyecto y el producto son obligatorios.</p>
+          </div>
+        </div>
+        <div className="formGrid">
+          <Field label="Nombre del proyecto" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} full placeholder="Ej. Curso profesional — Cómo registrar una venta" />
+          <Field label="Producto" value={draft.productName} onChange={(value) => setDraft({ ...draft, productName: value })} placeholder="Ej. FullPOS" />
+          <Field label="Titular" hint="Opcional" value={draft.headline} onChange={(value) => setDraft({ ...draft, headline: value })} placeholder="Frase principal del video" />
+          <Field label="Subtítulo" hint="Opcional" value={draft.subheadline} onChange={(value) => setDraft({ ...draft, subheadline: value })} placeholder="Frase de apoyo" />
+          <Field label="Oferta" hint="Opcional" value={draft.offer} onChange={(value) => setDraft({ ...draft, offer: value })} placeholder="Ej. 7 días gratis" />
+          <Field label="Precio" hint="Opcional" value={draft.price} onChange={(value) => setDraft({ ...draft, price: value })} placeholder="Deja vacío si no aplica" />
+          <Field label="Sitio web" hint="Opcional" value={draft.website} onChange={(value) => setDraft({ ...draft, website: value })} placeholder="https://tu-sitio.com" />
+        </div>
+      </section>
     </div>
   );
 }
@@ -2216,6 +2377,7 @@ function InfoStep({ draft, setDraft }: { draft: Draft; setDraft: (draft: Draft) 
 function StoryboardStep({
   project,
   busy,
+  operation,
   previewUrl,
   previewState,
   onAddScene,
@@ -2233,6 +2395,7 @@ function StoryboardStep({
 }: {
   project?: Project;
   busy: string | null;
+  operation: MediaOperation;
   previewUrl: string;
   previewState: TrainingPreviewState;
   onAddScene: () => void;
@@ -2248,17 +2411,30 @@ function StoryboardStep({
   onAssignSceneMedia: (sceneId: string, files?: FileList | File[]) => Promise<boolean>;
   onCreateStepsFromLibrary: (insertAfterSceneId?: string) => Promise<string[]>;
 }) {
-  const scenes = [...(project?.scenes ?? [])].sort((a, b) => a.order - b.order);
+  const scenes = visibleStoryScenes(project?.scenes ?? []);
   const [selectedId, setSelectedId] = useState<string>("");
   const [openSection, setOpenSection] = useState<"content" | "highlight" | "narration" | "subtitles" | "advanced">("content");
   const [activeTool, setActiveTool] = useState<"zoom" | "highlight" | "arrow" | "circle" | "click" | "blur" | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
   const [previewPlaybackError, setPreviewPlaybackError] = useState("");
-  const [localMediaPreview, setLocalMediaPreview] = useState<{ sceneId: string; url: string; isVideo: boolean; filename: string } | null>(null);
-  const selected = scenes.find((scene) => scene.id === selectedId) ?? scenes[0];
+  /* Zoom de inspeccion de la vista previa: Ctrl + rueda (1 = ajustar al marco). */
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const previewBoxRef = useRef<HTMLDivElement | null>(null);
+  const previewStageRef = useRef<HTMLDivElement | null>(null);
+  const [localMediaPreview, setLocalMediaPreview] = useState<{ sceneId: string; url: string; isVideo: boolean; filename: string; pending: boolean } | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<{ url: string; isVideo: boolean; filename: string } | null>(null);
+  const selected = resolveSelectedScene(scenes, selectedId);
   const chapters = Array.from(new Set(scenes.map((scene) => scene.chapter).filter(Boolean))) as string[];
   const selectedAsset = (project?.assets ?? []).find((asset) => asset.id === selected?.mediaAssetId || asset.type === selected?.mediaAssetId);
   const activeLocalPreview = localMediaPreview && selected?.id === localMediaPreview.sceneId ? localMediaPreview : null;
+  /* Operacion en curso: la UI mantiene el ultimo estado estable y solo añade
+     un indicador de progreso. Nada de snapshots intermedios del backend. */
+  const mediaRunning = isMediaOperationRunning(operation);
+  const uploading = mediaRunning || Boolean(pendingPreview);
+  const operationLabel = mediaOperationLabel(operation);
+  /* Los subtitulos personalizados pueden llegar como texto JSON desde la base
+     de datos: se normalizan una vez y ya no puede romperse la pantalla. */
+  const selectedSubtitles = subtitleCues(selected?.customSubtitles);
   const mediaUrl = project && selectedAsset ? `${API_URL}/projects/${project.id}/assets/${selectedAsset.id}/file` : "";
   const isVideoMedia = Boolean(selectedAsset?.mimeType?.startsWith("video/"));
   const selectedDuration = Math.max(0, (selected?.trimEndSeconds ?? selected?.duration ?? 0) - (selected?.trimStartSeconds ?? 0));
@@ -2266,6 +2442,18 @@ function StoryboardStep({
   const isCourse = project?.videoType === "COURSE";
   const hasScenes = scenes.length > 0;
   const selectedChapterBusy = selected?.chapter ? busy === `chapter-preview-${selected.chapter}` : false;
+  const previewIsCurrent = previewState.mode !== "scene" || !previewState.sceneId || previewState.sceneId === selected?.id;
+  const realMediaNode = activeLocalPreview
+    ? activeLocalPreview.isVideo
+      ? <video controls src={activeLocalPreview.url} />
+      : <img src={activeLocalPreview.url} alt={activeLocalPreview.filename} />
+    : pendingPreview
+      ? pendingPreview.isVideo
+        ? <video controls src={pendingPreview.url} />
+        : <img src={pendingPreview.url} alt={pendingPreview.filename} />
+      : mediaUrl && project && selectedAsset
+        ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} />
+        : null;
   const retryPreview = () => {
     if (previewState.mode === "chapter" && previewState.chapter) return onPreviewChapter(previewState.chapter);
     if (previewState.mode === "full") return onPreviewFull();
@@ -2274,14 +2462,63 @@ function StoryboardStep({
   useEffect(() => {
     setPreviewPlaybackError("");
   }, [previewUrl]);
+  useEffect(() => {
+    setPreviewZoom(1);
+  }, [selected?.id]);
+  /* Ctrl + rueda: acerca/aleja la imagen del centro. Se registra a mano porque
+     el evento wheel de React es pasivo y no permitiria cancelar el scroll. */
+  useEffect(() => {
+    const node = previewBoxRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const step = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setPreviewZoom((current) => Math.min(8, Math.max(0.5, Number((current * step).toFixed(3)))));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [selected?.id, previewUrl, activeLocalPreview?.url]);
+  function resetPreviewZoom() {
+    setPreviewZoom(1);
+  }
   useEffect(() => () => {
     if (localMediaPreview?.url) URL.revokeObjectURL(localMediaPreview.url);
   }, [localMediaPreview?.url]);
+  /* La imagen se ve al instante con un objeto local; cuando el proyecto ya
+     tiene el medio real, se suelta el objeto local sin parpadeo. */
+  useEffect(() => {
+    if (!pendingPreview) return;
+    if (isMediaOperationRunning(operation)) return;
+    const timer = window.setTimeout(() => {
+      setPendingPreview((current) => {
+        if (current?.url) URL.revokeObjectURL(current.url);
+        return null;
+      });
+    }, selectedAsset ? 2500 : 4000);
+    return () => window.clearTimeout(timer);
+  }, [pendingPreview, operation, selectedAsset]);
+  useEffect(() => () => {
+    if (pendingPreview?.url) URL.revokeObjectURL(pendingPreview.url);
+  }, [pendingPreview?.url]);
   function patchSelected(patch: Partial<StoryScene>) {
     if (selected) onUpdateScene(selected.id, patch);
   }
 
+  /* Muestra el archivo al instante (antes de subirlo) y deja que la subida
+     siga en segundo plano. */
+  function showPendingPreview(file: File) {
+    const nextUrl = URL.createObjectURL(file);
+    setPendingPreview((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return { url: nextUrl, isVideo: file.type.startsWith("video/"), filename: file.name };
+    });
+    setPreviewPlaybackError("");
+  }
+
   async function addMediaFiles(files?: FileList | File[]) {
+    const first = Array.from(files ?? []).find((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+    if (first) showPendingPreview(first);
     const createdIds = await onUploadSceneMedia(selected?.id, files);
     if (createdIds[0]) setSelectedId(createdIds[0]);
   }
@@ -2290,17 +2527,32 @@ function StoryboardStep({
       await addMediaFiles(files);
       return;
     }
+    const sceneId = selected.id;
     const file = Array.from(files ?? [])[0];
     if (file) {
       const nextUrl = URL.createObjectURL(file);
       setLocalMediaPreview((current) => {
         if (current?.url) URL.revokeObjectURL(current.url);
-        return { sceneId: selected.id, url: nextUrl, isVideo: file.type.startsWith("video/"), filename: file.name };
+        return { sceneId, url: nextUrl, isVideo: file.type.startsWith("video/"), filename: file.name, pending: true };
       });
       setPreviewPlaybackError("");
     }
-    const updated = await onAssignSceneMedia(selected.id, files);
-    if (updated) setSelectedId(selected.id);
+    const updated = await onAssignSceneMedia(sceneId, files);
+    if (updated) {
+      // Confirmado por el backend: la vista previa local deja de estar pendiente
+      // (se usa para mostrar el archivo sin parpadeo, no como estado falso).
+      setSelectedId(sceneId);
+      setLocalMediaPreview((current) => (current && current.sceneId === sceneId ? { ...current, pending: false } : current));
+    } else {
+      // Fallo: no se deja una imagen falsa como si estuviera guardada.
+      setLocalMediaPreview((current) => {
+        if (current && current.sceneId === sceneId) {
+          if (current.url) URL.revokeObjectURL(current.url);
+          return null;
+        }
+        return current;
+      });
+    }
   }
   async function chooseFromLibrary() {
     const createdIds = await onCreateStepsFromLibrary(selected?.id);
@@ -2324,7 +2576,7 @@ function StoryboardStep({
     scenes.filter((scene) => scene.chapter === oldChapter).forEach((scene) => onUpdateScene(scene.id, { chapter }));
   }
   function previewPoint(event: MouseEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = (previewStageRef.current ?? event.currentTarget).getBoundingClientRect();
     const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
     const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
     return { x, y, px: Math.round(x * 1920), py: Math.round(y * 1080) };
@@ -2359,13 +2611,7 @@ function StoryboardStep({
   const emptyEditor = !hasScenes;
   return (
     <div className="sectionBlock editorDark">
-      <div className="sectionHeader">
-        <div>
-          <strong>Construye tu video paso a paso.</strong>
-          <p className="muted">Agrega capturas o grabaciones y luego destaca, explica y organiza cada paso.</p>
-        </div>
-      </div>
-      {emptyEditor ? (
+      {emptyEditor && !uploading ? (
         <div
           className="editorEmptyState"
           onDragOver={(event) => event.preventDefault()}
@@ -2374,26 +2620,23 @@ function StoryboardStep({
             void addMediaFiles(event.dataTransfer.files);
           }}
         >
-          <ImageIcon size={40} />
-          <div>
-            <h2>Agrega el contenido que quieres enseñar</h2>
-            <p>Selecciona imágenes o grabaciones. Puedes elegir varios archivos a la vez y crearemos un paso por cada archivo.</p>
-          </div>
+          <ImageIcon size={44} />
           <div className="buttonRow">
             <label className="primary fileButton"><Upload size={16} />Subir archivos<input type="file" multiple accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void addMediaFiles(event.target.files ?? undefined)} /></label>
             <button className="secondary" type="button" disabled={!project?.assets?.length || busy === "scene-library-batch"} onClick={() => void chooseFromLibrary()}>Elegir de biblioteca</button>
           </div>
-          <small>También puedes arrastrar archivos aquí.</small>
         </div>
       ) : (
       <div className="trainingEditor">
         <div className="storyboard">
-          <div className="panelTitle"><strong>Pasos del video</strong><small>{scenes.length ? `${scenes.length} pasos` : "Sin pasos"}</small></div>
+          <div className="panelTitle"><strong>Pasos del video</strong><small>{scenes.length ? `${scenes.length} pasos` : uploading ? "Preparando el primer paso..." : "Sin pasos"}</small></div>
+          {emptyEditor ? (
+            <p className="pendingSteps"><Loader2 className="spinIcon" size={13} />{operationLabel || "Preparando el primer paso..."}</p>
+          ) : null}
           {grouped.map((group) => (
             <div className="chapterGroup" key={group.chapter || "all"}>
               {group.chapter ? (
                 <label className="chapterName">
-                  <span>{group.chapter.toUpperCase()}</span>
                   <input value={group.chapter} onChange={(event) => updateChapter(group.chapter, event.target.value)} aria-label="Renombrar capítulo" />
                 </label>
               ) : null}
@@ -2418,17 +2661,17 @@ function StoryboardStep({
               })}
             </div>
           ))}
-          <button className="secondary fullWidth" type="button" disabled={busy === "scene-add"} onClick={onAddScene}><Plus size={16} />Agregar paso</button>
+          <button className="secondary fullWidth" type="button" disabled={busy === "scene-add" || uploading} onClick={onAddScene}><Plus size={16} />Agregar paso</button>
           {isCourse ? <div className="chapterList">
-            <strong>Capítulos</strong>
-            {chapters.map((chapter) => <button key={chapter} className="secondary" type="button" onClick={() => onPreviewChapter(chapter)}><Play size={14} />Ver {chapter}</button>)}
-            <button className="secondary" type="button" disabled={!selected} onClick={() => selected && patchSelected({ chapter: selected.chapter ? `${selected.chapter} 2` : "Nuevo capítulo", chapterTitleEnabled: true })}><Plus size={14} />Agregar capítulo</button>
+            {chapters.map((chapter) => <button key={chapter} className="secondary" type="button" title={`Ver ${chapter}`} onClick={() => onPreviewChapter(chapter)}><Play size={12} />{chapter}</button>)}
+            <button className="secondary" type="button" disabled={!selected} onClick={() => selected && patchSelected({ chapter: selected.chapter ? `${selected.chapter} 2` : "Nuevo capítulo", chapterTitleEnabled: true })}><Plus size={12} />Capítulo</button>
           </div> : null}
         </div>
         <div className="previewColumn">
-          <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : activeLocalPreview?.filename ?? selectedAsset?.filename ?? "Selecciona o sube un medio"}</small></div>
+          <div className="panelTitle"><strong>Vista previa</strong><small>{activeTool ? toolInstruction(activeTool) : activeLocalPreview?.filename ?? pendingPreview?.filename ?? selectedAsset?.filename ?? (uploading ? "Preparando el archivo..." : "Selecciona o sube un medio")}</small></div>
           <div
             className={`trainingPreview directPreview ${activeTool ? "isTargeting" : ""}`}
+            ref={previewBoxRef}
             onClick={onPreviewClick}
             onMouseDown={onPreviewMouseDown}
             onMouseUp={onPreviewMouseUp}
@@ -2438,17 +2681,25 @@ function StoryboardStep({
               void replaceSelectedMedia(event.dataTransfer.files);
             }}
           >
-            {previewState.status === "loading" ? <PreviewStatus state={previewState} /> : previewState.status === "error" ? <PreviewStatus state={previewState} onRetry={retryPreview} onDismiss={onClearPreview} /> : previewUrl && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : previewPlaybackError ? <PreviewStatus state={{ status: "error", message: previewPlaybackError }} onRetry={retryPreview} onDismiss={() => setPreviewPlaybackError("")} /> : activeLocalPreview ? activeLocalPreview.isVideo ? <video controls src={activeLocalPreview.url} /> : <img src={activeLocalPreview.url} alt={activeLocalPreview.filename} /> : mediaUrl && project && selectedAsset ? <ProjectMediaPreview projectId={project.id} assetId={selectedAsset.id} isVideo={isVideoMedia} filename={selectedAsset.filename} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            <div className="previewStage" ref={previewStageRef} style={{ transform: `scale(${previewZoom})` }}>
+            {previewUrl && previewIsCurrent && !previewPlaybackError ? <video controls autoPlay src={previewUrl} onError={() => setPreviewPlaybackError("El preview fue generado, pero el navegador no pudo reproducir el stream. Intenta generarlo otra vez o revisa que el backend pueda servir el archivo MP4.")} /> : realMediaNode ? realMediaNode : previewState.status === "error" || previewPlaybackError ? <PreviewStatus state={previewState.status === "error" ? previewState : { status: "error", message: previewPlaybackError }} onRetry={retryPreview} onDismiss={() => { setPreviewPlaybackError(""); onClearPreview(); }} /> : previewState.status === "loading" ? <PreviewStatus state={previewState} /> : <div className="emptyState uploadDropzone"><ImageIcon size={34} /><p>{selected?.mediaAssetId ? "No se pudo cargar el medio asociado." : "Agrega capturas o grabaciones para comenzar."}</p><small>{selected?.mediaAssetId ? "El archivo existe en el paso, pero la vista previa no respondió." : "Arrastra un archivo aquí o selecciónalo para asociarlo a este paso."}</small><div className="buttonRow"><label className="secondary fileButton"><Upload size={16} />Agregar archivo<input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm" onChange={(event) => void replaceSelectedMedia(event.target.files ?? undefined)} /></label><button className="secondary" type="button" onClick={() => setOpenSection("content")}>Elegir de biblioteca</button></div></div>}
+            </div>
+            {uploading && operationLabel ? <span className="previewBadge loading"><Loader2 className="spinIcon" size={14} />{operationLabel}</span> : previewState.status === "loading" && realMediaNode ? <span className="previewBadge loading"><Loader2 className="spinIcon" size={14} />Generando el video del paso... tarda unos segundos.</span> : previewPlaybackError && realMediaNode ? <span className="previewBadge warn">No se pudo reproducir la vista previa: mostrando el medio original.</span> : null}
+            {previewZoom !== 1 ? (
+              <button className="previewZoomChip" type="button" onClick={resetPreviewZoom} title="Restablecer zoom (o Ctrl + rueda)">
+                <ZoomIn size={13} />{Math.round(previewZoom * 100)}%  ✕
+              </button>
+            ) : null}
           </div>
           <div className="previewControls">
             <button className="primary" type="button" disabled={!selected || busy === `scene-preview-${selected?.id}`} onClick={() => selected && onPreviewScene(selected.id)}>{busy === `scene-preview-${selected?.id}` ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{busy === `scene-preview-${selected?.id}` ? "Generando..." : "Ver paso"}</button>
             {selected?.chapter ? <button className="secondary" type="button" disabled={selectedChapterBusy} onClick={() => onPreviewChapter(selected.chapter!)}>{selectedChapterBusy ? <Loader2 className="spinIcon" size={16} /> : <Play size={16} />}{selectedChapterBusy ? "Generando..." : "Ver capítulo"}</button> : null}
-            {isVideoMedia ? <span>{formatSeconds(selected.trimStartSeconds ?? 0)} / {formatSeconds(selectedAsset?.durationSeconds ?? selected.duration)}</span> : null}
+            {isVideoMedia ? <span>{formatSeconds(selected?.trimStartSeconds ?? 0)} / {formatSeconds(selectedAsset?.durationSeconds ?? selected?.duration ?? 0)}</span> : null}
           </div>
         </div>
         {selected ? (
           <div className="sceneProperties">
-            <div className="panelTitle"><strong>Editar paso</strong><small>{busy === `scene-update-${selected.id}` || busy === `scene-media-${selected.id}` ? "Guardando..." : selected.mediaAssetId ? "Guardado ✓" : "Sin medio asociado"}</small></div>
+            <div className="panelTitle"><strong>Editar paso</strong><small>{mediaPanelStatus({ hasSelection: true, mediaAssetId: selected.mediaAssetId, operation, pendingLocalPreview: Boolean(activeLocalPreview?.pending), saving: busy === `scene-update-${selected.id}` })}</small></div>
             <EditorSection id="content" label="Contenido" open={openSection} setOpen={setOpenSection}>
               <Field label="Título del paso" value={selected.title} onChange={(title) => patchSelected({ title })} />
               {isCourse ? <Field label="Capítulo" value={selected.chapter ?? ""} onChange={(chapter) => patchSelected({ chapter })} /> : null}
@@ -2475,9 +2726,9 @@ function StoryboardStep({
               <div className="narrationInfo"><span>Narración: {narrationSeconds.toFixed(1)} segundos</span><span>Escena: {selected.duration} segundos</span>{narrationSeconds > selected.duration ? <button className="secondary" type="button" onClick={() => patchSelected({ duration: Math.ceil(narrationSeconds + 0.6), durationMode: "AUTO" })}>Ajustar duración automáticamente</button> : null}</div>
             </EditorSection>
             <EditorSection id="subtitles" label="Subtítulos" open={openSection} setOpen={setOpenSection}>
-              <div className="segmented"><button type="button" className={!selected.customSubtitles?.length ? "active" : ""}>Automáticos</button><button type="button" onClick={() => patchSelected({ customSubtitles: selected.customSubtitles?.length ? selected.customSubtitles : [{ start: 0, end: Math.min(4, selected.duration), text: selected.narrationScript ?? selected.title }] })}>Personalizados</button><button type="button" onClick={() => patchSelected({ customSubtitles: [] })}>Sin subtítulos</button></div>
+              <div className="segmented"><button type="button" className={!selectedSubtitles.length ? "active" : ""}>Automáticos</button><button type="button" onClick={() => patchSelected({ customSubtitles: selectedSubtitles.length ? selectedSubtitles : [{ start: 0, end: Math.min(4, selected.duration), text: selected.narrationScript ?? selected.title }] })}>Personalizados</button><button type="button" onClick={() => patchSelected({ customSubtitles: [] })}>Sin subtítulos</button></div>
               <p className="muted">{selected.narrationScript ? selected.narrationScript.slice(0, 180) : "Los subtítulos automáticos se generan desde la narración del paso."}</p>
-              {selected.customSubtitles?.length ? <label className="field full"><span>Texto personalizado</span><textarea rows={3} value={selected.customSubtitles.map((cue) => cue.text).join("\n")} onChange={(event) => patchSelected({ customSubtitles: event.target.value.split("\n").filter(Boolean).map((text, index) => ({ start: index * 3, end: index * 3 + 3, text })) })} /></label> : null}
+              {selectedSubtitles.length ? <label className="field full"><span>Texto personalizado</span><textarea rows={3} value={selectedSubtitles.map((cue) => cue.text).join("\n")} onChange={(event) => patchSelected({ customSubtitles: event.target.value.split("\n").filter(Boolean).map((text, index) => ({ start: index * 3, end: index * 3 + 3, text })) })} /></label> : null}
             </EditorSection>
             <EditorSection id="advanced" label="Opciones avanzadas" open={openSection} setOpen={setOpenSection}>
               <label className="field"><span>Tipo interno</span><select value={selected.type} onChange={(event) => patchSelected({ type: event.target.value })}>{["TITLE", "CHAPTER", "SCREENSHOT", "SCREEN_RECORDING", "CALLOUT", "TEXT", "SUMMARY", "BRAND_INTRO", "BRAND_OUTRO", "CTA", "VIDEO", "IMAGE"].map((type) => <option key={type} value={type}>{friendlySceneType(type)}</option>)}</select></label>
@@ -2488,7 +2739,14 @@ function StoryboardStep({
               <button className="secondary" type="button" onClick={() => patchSelected({ scale: 1, positionX: 0.5, positionY: 0.5, cropTop: 0, cropRight: 0, cropBottom: 0, cropLeft: 0 })}>Restablecer encuadre</button>
             </EditorSection>
           </div>
-        ) : null}
+        ) : (
+          /* Sin paso todavia (proyecto nuevo): panel estable con el estado real
+             de la operacion en curso, nunca datos de un snapshot intermedio. */
+          <div className="sceneProperties pendingProperties">
+            <div className="panelTitle"><strong>Editar paso</strong><small>{operationLabel || "Guardando medio..."}</small></div>
+            <p className="pendingHint"><Loader2 className="spinIcon" size={14} />El archivo se esta guardando en el servidor. El paso aparecera aqui en cuanto se confirme.</p>
+          </div>
+        )}
       </div>
       )}
     </div>
@@ -2652,6 +2910,11 @@ function cleanFileTitle(filename: string) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function defaultMediaChapter(videoType: VideoType, count: number) {
+  if (videoType === "COURSE") return count > 1 ? "Contenido" : "Principal";
+  return undefined;
 }
 
 function AssetsStep({ previews, assetNames, project, busy, onUpload, onUploadMany }: { previews: Record<string, string>; assetNames: Record<string, string>; project?: Project; busy: string | null; onUpload: (type: AssetType, file?: File) => void; onUploadMany: (files?: FileList | File[], startType?: AssetType) => void }) {
@@ -2942,6 +3205,8 @@ function AiEnhancementStep({
 
 function ProjectPreview({ draft, previews, assetNames, project }: { draft: Draft; previews: Record<string, string>; assetNames: Record<string, string>; project?: Project }) {
   const existing = Object.fromEntries((project?.assets ?? []).map((asset) => [asset.type, asset.filename]));
+  const assetsById = Object.fromEntries((project?.assets ?? []).map((asset) => [asset.id, asset]));
+  const scenes = visibleStoryScenes(project?.scenes ?? []);
   return (
     <div className="review">
       <div><strong>Preview del proyecto</strong><p className="muted">Textos, formato, audio, plantilla y recursos antes de renderizar.</p></div>
@@ -2949,11 +3214,28 @@ function ProjectPreview({ draft, previews, assetNames, project }: { draft: Draft
         <span><strong>Proyecto</strong>{draft.name}</span><span><strong>Producto</strong>{draft.productName}</span><span><strong>Formato</strong>{draft.format}</span>
         <span><strong>Plantilla</strong>{templateLabel(draft.template)}</span><span><strong>Voz</strong>{draft.voiceoverEnabled ? `${draft.voiceName} · ${draft.voiceSpeed}` : "Desactivada"}</span><span><strong>Música</strong>{draft.musicEnabled ? `${draft.musicTrackId ?? (draft.customMusicPath ? "Mi pista" : "Auto")} · ${Math.round(draft.musicVolume * 100)}%` : "Desactivada"}</span>
       </div>
-      <div className="assetStrip">
-        {uploadFields.slice(0, 5).map((field) => (
-          <div className="assetThumb" key={field.type}>{previews[field.type] ? <img src={previews[field.type]} alt="" /> : <ImageIcon size={22} />}<span>{field.label}</span><small>{assetNames[field.type] ?? existing[field.type] ?? "Pendiente"}</small></div>
-        ))}
-      </div>
+      {scenes.length ? (
+        /* El video se arma con los pasos: se muestran los pasos reales, no los
+           recursos por tipo del flujo antiguo (que ya no se usan). */
+        <div className="assetStrip">
+          {scenes.map((scene, index) => {
+            const media = scene.mediaAssetId ? assetsById[scene.mediaAssetId] : undefined;
+            return (
+              <div className="assetThumb" key={scene.id}>
+                <ImageIcon size={22} />
+                <span>{index + 1}. {scene.title}</span>
+                <small>{media ? media.filename : "Sin medio"}</small>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="assetStrip">
+          {uploadFields.slice(0, 5).map((field) => (
+            <div className="assetThumb" key={field.type}>{previews[field.type] ? <img src={previews[field.type]} alt="" /> : <ImageIcon size={22} />}<span>{field.label}</span><small>{assetNames[field.type] ?? existing[field.type] ?? "Pendiente"}</small></div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -3093,8 +3375,16 @@ function Stat({ label, value }: { label: string; value: number }) {
   return <div className="card"><div className="muted">{label}</div><div className="statValue">{value}</div></div>;
 }
 
-function Field({ label, value, onChange, full = false }: { label: string; value: string; onChange: (value: string) => void; full?: boolean }) {
-  return <label className={`field ${full ? "full" : ""}`}><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function Field({ label, value, onChange, full = false, hint, placeholder }: { label: string; value: string; onChange: (value: string) => void; full?: boolean; hint?: string; placeholder?: string }) {
+  return (
+    <label className={`field ${full ? "full" : ""}`}>
+      <span>
+        {label}
+        {hint ? <em className="fieldHint">{hint}</em> : null}
+      </span>
+      <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
 }
 
 function templateLabel(template: Draft["template"]) {
@@ -3273,16 +3563,35 @@ type UploadIntent = {
   expiresInSeconds: number;
 };
 
+/* Sesion del estudio: el token vive en localStorage y el API lo renueva antes de que
+   caduque. Un 401 significa que ya no sirve: se descarta y vuelve la pantalla de acceso. */
+const UNAUTHORIZED_EVENT = "videoStudio:unauthorized";
+/* Revalidar la sesion cuesta una peticion: una vez cada 5 minutos mantiene la sesion viva
+   sin repetirla en cada cambio de pestaña. */
+const SESSION_RECHECK_MS = 5 * 60 * 1000;
+
 async function fetchJson<T>(url: string, init?: StudioRequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (!init?.skipAuth && typeof window !== "undefined") {
+  const usesStoredToken = !init?.skipAuth && typeof window !== "undefined";
+  if (usesStoredToken) {
     const token = window.localStorage.getItem("videoStudioToken");
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
   const { skipAuth, ...requestInit } = init ?? {};
   const response = await fetch(url, { ...requestInit, headers });
+  if (response.status === 401 && usesStoredToken) clearStoredSession();
   if (!response.ok) throw new Error(await responseErrorMessage(response));
   return response.json() as Promise<T>;
+}
+
+/** Descarta la sesion caducada y avisa a la interfaz para que pida acceso otra vez. */
+function clearStoredSession() {
+  try {
+    window.localStorage.removeItem("videoStudioToken");
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  } catch {
+    /* Sin almacenamiento local no hay nada que limpiar. */
+  }
 }
 
 async function responseErrorMessage(response: Response) {

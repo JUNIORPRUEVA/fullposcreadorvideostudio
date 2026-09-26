@@ -147,8 +147,17 @@ export function VoiceStudioClient({ apiUrl = DEFAULT_API_URL }: VoiceStudioClien
         payload = null;
       }
       if (!response.ok) {
-        // 401/403: sin sesion del estudio no hay nada que hacer aqui dentro.
-        setLoginNeeded(response.status === 401 || response.status === 403);
+        // 401/403: sin sesion del estudio no hay nada que hacer aqui dentro. Si el token
+        // caduco se descarta, para que al volver al estudio se pida la sesion de nuevo.
+        if (response.status === 401 || response.status === 403) {
+          tokenRef.current = "";
+          setLoginNeeded(true);
+          try {
+            window.localStorage.removeItem("videoStudioToken");
+          } catch {
+            /* Sin almacenamiento local no hay token que borrar. */
+          }
+        }
         throw new ApiError(response.status, describeApiError(response.status, payload, apiUrl));
       }
       setLoginNeeded(false);

@@ -28,6 +28,8 @@ Required production gates:
 - `NODE_ENV=production`.
 - `AUTH_REQUIRED=true`.
 - `JWT_SECRET` configured server-side only.
+- `AUTH_TOKEN_TTL_DAYS` short in production (7–30). Long values (e.g. 3650) are only for the
+  single-owner local studio: the web renews the token automatically while it is used.
 - `OWNER_EMAIL` and one-time `OWNER_PASSWORD` configured before first login.
 - `CORS_ORIGINS` contains only approved HTTPS PWA origins.
 - PostgreSQL is internal-only and has no public `5432` binding.

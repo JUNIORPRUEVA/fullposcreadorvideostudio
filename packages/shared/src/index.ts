@@ -1,6 +1,7 @@
 export const PRODUCT_NAME = "Video Studio";
 
 export * from "./training-engine.js";
+export * from "./composition.js";
 
 export const allowedAssetMimeTypes = [
   "image/png",

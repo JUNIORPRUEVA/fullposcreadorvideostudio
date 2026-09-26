@@ -7,6 +7,10 @@ import { promisify } from "node:util";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { assertInside, audioRoot, uploadsRoot } from "../lib/paths.js";
 import { validateProjectInput, type ProjectInput } from "./validation.js";
+import { starterScenesFor } from "./starter-scenes.js";
+import { toSceneJsonColumn } from "../lib/scene-json.js";
+import { signMediaUrl } from "../lib/media-signature.js";
+import { authSecret } from "../auth/auth.service.js";
 import { defaultTemplateFor, policyForVideoType } from "../video-studio/video-studio.metadata.js";
 import { R2StorageService, objectKeyFor, sha256File } from "../storage/r2-storage.service.js";
 
@@ -38,17 +42,19 @@ export class ProjectsService {
   async create(body: Record<string, unknown>) {
     const input = validateProjectInput(body) as ProjectInput;
     const policy = policyForVideoType(input.videoType);
+    // El proyecto nace vacio salvo que el cliente pida la plantilla starter.
+    const starterScenes = starterScenesFor(policy.id, body.starterStoryboard);
     const template = input.template ? defaultTemplateFallback(input.template) : defaultTemplateFor(policy.id).id;
     const brand = input.brandProfileId
       ? await this.prisma.brandProfile.findUnique({ where: { id: input.brandProfileId } })
       : await this.prisma.brandProfile.findFirst({ where: { isDefault: true, archived: false } });
-    return this.prisma.project.create({
+    const created = await this.prisma.project.create({
       data: {
         name: input.name,
         videoType: input.videoType ?? policy.id,
         brandProfileId: brand?.id,
         productName: input.productName ?? brand?.name ?? "New Brand",
-        headline: input.headline,
+        headline: input.headline ?? "",
         subheadline: input.subheadline,
         offer: input.offer || brand?.defaultOffer || "",
         price: input.price || brand?.defaultPriceText || "",
@@ -77,39 +83,42 @@ export class ProjectsService {
         visualStyle: input.visualStyle ?? "saas-premium",
         motionIntensity: input.motionIntensity ?? "cinematic",
         scenes: {
-          create: defaultScenesFor(policy.id)
+          create: starterScenes
         }
       },
       include: includeProject
     });
+    return this.withSignedMedia(created);
   }
 
-  findAll() {
-    return this.prisma.project.findMany({
+  async findAll() {
+    const projects = await this.prisma.project.findMany({
       orderBy: { createdAt: "desc" },
       include: includeProject
     });
+    return projects.map((project) => this.withSignedMedia(project));
   }
 
   async findOne(id: string) {
     const project = await this.prisma.project.findUnique({ where: { id }, include: includeProject });
     if (!project) throw new NotFoundException("Project not found.");
-    return project;
+    return this.withSignedMedia(project);
   }
 
   async update(id: string, body: Record<string, unknown>) {
     await this.findOne(id);
     const input = validateProjectInput(body, true);
-    return this.prisma.project.update({
+    const updated = await this.prisma.project.update({
       where: { id },
       data: input,
       include: includeProject
     });
+    return this.withSignedMedia(updated);
   }
 
   async duplicate(id: string) {
     const project = await this.findOne(id);
-    return this.prisma.project.create({
+    const duplicated = await this.prisma.project.create({
       data: {
         name: `${project.name} copia`,
         videoType: project.videoType,
@@ -195,12 +204,28 @@ export class ProjectsService {
       },
       include: includeProject
     });
+    return this.withSignedMedia(duplicated);
   }
 
   async remove(id: string) {
     await this.findOne(id);
     await this.prisma.project.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /*
+   * Los archivos de audio del proyecto se cargan en elementos <audio>, que no
+   * pueden enviar la cabecera Authorization: la respuesta incluye las URLs ya
+   * firmadas para que el navegador pueda reproducirlas.
+   */
+  private withSignedMedia<T extends { id: string; customMusicPath?: string | null; voiceReferencePath?: string | null }>(project: T) {
+    const secret = authSecret();
+    const sign = (pathname: string) => (secret ? signMediaUrl(pathname, secret) : pathname);
+    return {
+      ...project,
+      customMusicUrl: project.customMusicPath ? sign(`/projects/${project.id}/music/file`) : null,
+      voiceReferenceUrl: project.voiceReferencePath ? sign(`/projects/${project.id}/voice-reference`) : null
+    };
   }
 
   async saveAsset(projectId: string, type: string, file: Express.Multer.File) {
@@ -454,37 +479,9 @@ function defaultTemplateFallback(template: string) {
   return template === "fullpos-premium-vertical" ? "saas-premium-ad" : template;
 }
 
-function defaultScenesFor(videoType: string) {
-  if (videoType === "COURSE") {
-    return [
-      { type: "BRAND_INTRO", order: 1, chapter: "Introducción", title: "Intro", duration: 4, narrationScript: "Bienvenido al curso." },
-      { type: "CHAPTER", order: 2, chapter: "Facturación", title: "Abrir facturación", duration: 6, narrationScript: "Vamos a abrir el módulo de facturación." },
-      { type: "SCREENSHOT", order: 3, chapter: "Facturación", title: "Buscar producto", duration: 7, narrationScript: "Busca el producto que deseas vender." },
-      { type: "CALLOUT", order: 4, chapter: "Facturación", title: "Agregar producto", duration: 7, narrationScript: "Pulsa agregar para incluirlo en el ticket." },
-      { type: "SCREENSHOT", order: 5, chapter: "Cliente", title: "Seleccionar cliente", duration: 6, narrationScript: "Selecciona el cliente correspondiente." },
-      { type: "CALLOUT", order: 6, chapter: "Cobro", title: "Cobrar", duration: 7, narrationScript: "Revisa el total y pulsa cobrar." },
-      { type: "SUMMARY", order: 7, chapter: "Resumen", title: "Confirmación", duration: 5, narrationScript: "La venta queda registrada correctamente." },
-      { type: "BRAND_OUTRO", order: 8, chapter: "Resumen", title: "Resumen", duration: 4, narrationScript: "Continúa practicando con tu equipo." }
-    ];
-  }
-  if (videoType === "QUICK_TUTORIAL" || videoType === "SUPPORT") {
-    return [
-      { type: "TITLE", order: 1, title: "Cómo registrar una venta", duration: 2, narrationScript: "Aprende a registrar una venta rápidamente." },
-      { type: "SCREENSHOT", order: 2, title: "Buscar producto", duration: 6, narrationScript: "Busca el producto en facturación." },
-      { type: "CALLOUT", order: 3, title: "Agregar y cobrar", duration: 7, narrationScript: "Agrega el producto y pulsa cobrar." },
-      { type: "SUMMARY", order: 4, title: "Resultado", duration: 4, narrationScript: "Listo, la venta fue creada." }
-    ];
-  }
-  return [
-    { type: "BRAND_INTRO", order: 1, title: "Intro", duration: 3, narrationScript: "Presenta tu marca." },
-    { type: "DEVICE_SHOWCASE", order: 2, title: "Producto", duration: 8, narrationScript: "Muestra el producto principal." },
-    { type: "CTA", order: 3, title: "CTA", duration: 4, narrationScript: "Invita a tomar acción." }
-  ];
-}
-
 function sceneData(body: Record<string, unknown>) {
-  const animation = typeof body.animation === "object" && body.animation ? normalizeSceneJson(body.animation) : typeof body.animation === "string" ? body.animation : undefined;
-  const customSubtitles = Array.isArray(body.customSubtitles) ? normalizeSceneJson(body.customSubtitles) : typeof body.customSubtitles === "string" ? body.customSubtitles : undefined;
+  const animation = toSceneJsonColumn(body.animation);
+  const customSubtitles = toSceneJsonColumn(body.customSubtitles);
   return {
     type: typeof body.type === "string" ? body.type : "SCREENSHOT",
     order: typeof body.order === "number" ? body.order : 1,
@@ -496,7 +493,7 @@ function sceneData(body: Record<string, unknown>) {
     narrationScript: typeof body.narrationScript === "string" ? body.narrationScript : undefined,
     voiceProfile: typeof body.voiceProfile === "string" ? body.voiceProfile : undefined,
     narrationStyle: typeof body.narrationStyle === "string" ? body.narrationStyle : undefined,
-    assetRefs: Array.isArray(body.assetRefs) ? JSON.stringify(body.assetRefs) : typeof body.assetRefs === "string" ? body.assetRefs : undefined,
+    assetRefs: toSceneJsonColumn(body.assetRefs),
     mediaAssetId: body.mediaAssetId === null || body.mediaAssetId === "" ? null : typeof body.mediaAssetId === "string" ? body.mediaAssetId : undefined,
     trimStartSeconds: typeof body.trimStartSeconds === "number" ? body.trimStartSeconds : undefined,
     trimEndSeconds: typeof body.trimEndSeconds === "number" ? body.trimEndSeconds : undefined,
@@ -512,10 +509,6 @@ function sceneData(body: Record<string, unknown>) {
     transition: typeof body.transition === "string" ? body.transition : "smooth",
     animation
   };
-}
-
-function normalizeSceneJson(value: unknown) {
-  return JSON.stringify(value);
 }
 
 function validateSceneTrim(assets: Array<{ id: string; type: string; durationSeconds: number | null }>, body: Record<string, unknown>) {

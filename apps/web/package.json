@@ -9,7 +9,7 @@
     "start": "next start -p 3000",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('web smoke: no isolated tests yet')\""
+    "test": "tsx --tsconfig tsconfig.test.json --test app/storyboard-state.test.ts app/voice-studio/voice-studio-state.test.ts app/voice-studio/VoiceStudioClient.test.tsx"
   },
   "dependencies": {
     "@fullpos-ad-studio/shared": "file:../../packages/shared",

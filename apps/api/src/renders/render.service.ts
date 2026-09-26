@@ -5,6 +5,8 @@ import { mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { rendersRoot } from "../lib/paths.js";
+import { signMediaUrl } from "../lib/media-signature.js";
+import { authSecret } from "../auth/auth.service.js";
 import { AudioService } from "../audio/audio.service.js";
 import { DiskGuardService } from "../storage/disk-guard.service.js";
 import { R2StorageService, extensionFor, objectKeyFor, sha256File } from "../storage/r2-storage.service.js";
@@ -99,7 +101,7 @@ export class RenderService {
       },
       { renderId, outputRoot: rendersRoot }
     );
-    return { id: renderId, outputPath, streamUrl: `/renders/style-preview/${renderId}/stream` };
+    return { id: renderId, outputPath, streamUrl: this.signedStreamUrl(`/renders/style-preview/${renderId}/stream`) };
   }
 
   async renderHybridPreview(body: Record<string, unknown>) {
@@ -168,7 +170,7 @@ export class RenderService {
       },
       { renderId, outputRoot: rendersRoot }
     );
-    return { id: renderId, outputPath, streamUrl: `/renders/hybrid-preview/${renderId}/stream` };
+    return { id: renderId, outputPath, streamUrl: this.signedStreamUrl(`/renders/hybrid-preview/${renderId}/stream`) };
   }
 
   async renderQuickTutorialPreview(body: Record<string, unknown>) {
@@ -179,7 +181,7 @@ export class RenderService {
         renderId: "quick-tutorial-preview",
         outputRoot: rendersRoot
       });
-      return { id: "quick-tutorial-preview", outputPath, streamUrl: "/renders/preview/quick-tutorial-preview/stream" };
+      return { id: "quick-tutorial-preview", outputPath, streamUrl: this.signedStreamUrl("/renders/preview/quick-tutorial-preview/stream") };
     } catch (error) {
       throw new BadRequestException(`No se pudo generar la vista previa: ${sentence(error instanceof Error ? error.message : "error desconocido")}`);
     } finally {
@@ -195,12 +197,18 @@ export class RenderService {
         renderId: "professional-course-scene-preview",
         outputRoot: rendersRoot
       });
-      return { id: "professional-course-scene-preview", outputPath, streamUrl: "/renders/preview/professional-course-scene-preview/stream" };
+      return { id: "professional-course-scene-preview", outputPath, streamUrl: this.signedStreamUrl("/renders/preview/professional-course-scene-preview/stream") };
     } catch (error) {
       throw new BadRequestException(`No se pudo generar la vista previa: ${sentence(error instanceof Error ? error.message : "error desconocido")}`);
     } finally {
       await workspace.release();
     }
+  }
+
+  private signedStreamUrl(pathname: string) {
+    const secret = authSecret();
+    // Sin secreto (auth desactivada) la ruta va tal cual.
+    return secret ? signMediaUrl(pathname, secret) : pathname;
   }
 
   private async previewPayload(body: Record<string, unknown>, videoType: "QUICK_TUTORIAL" | "COURSE", workspaceDir?: string): Promise<RenderPayload> {
@@ -219,7 +227,8 @@ export class RenderService {
     const demoRoot = path.join(root, "assets", "demo", "e2e");
     const sceneId = typeof body.sceneId === "string" ? body.sceneId : undefined;
     const chapter = typeof body.chapter === "string" ? body.chapter : undefined;
-    const selectedScenes = (project?.scenes ?? []).filter((scene) => {
+    const previewScenes = discardStarterPlaceholders(project?.scenes ?? []);
+    const selectedScenes = previewScenes.filter((scene) => {
       if (sceneId) return scene.id === sceneId;
       if (chapter) return scene.chapter === chapter || scene.title === chapter;
       return true;
@@ -291,7 +300,7 @@ export class RenderService {
       });
 
       const assets = await this.localizeAssets(job.project.assets, workspace.dir);
-      const baseScenes = job.project.scenes.map((scene) => sceneForPayload(scene));
+      const baseScenes = discardStarterPlaceholders(job.project.scenes).map((scene) => sceneForPayload(scene));
       const sceneNarration = await this.prepareSceneNarration(job, baseScenes);
       const scenesList = baseScenes.map((scene) => {
         const prepared = sceneNarration.get(scene.id);
@@ -492,6 +501,18 @@ export class RenderService {
 
 function requiresMedia(type: string) {
   return !["BRAND_INTRO", "BRAND_OUTRO", "TITLE", "CHAPTER", "CTA", "SUMMARY", "TEXT"].includes(type);
+}
+
+function discardStarterPlaceholders<T extends { title: string; type: string; mediaAssetId: string | null }>(scenes: T[]) {
+  if (!scenes.some((scene) => scene.mediaAssetId)) return scenes;
+  return scenes.filter((scene) => !isStarterPlaceholderScene(scene));
+}
+
+function isStarterPlaceholderScene(scene: { title: string; type: string; mediaAssetId: string | null }) {
+  if (scene.mediaAssetId) return false;
+  const starterTitles = new Set(["Intro", "Abrir facturación", "Buscar producto", "Agregar producto", "Seleccionar cliente", "Cobrar", "Confirmación", "Resumen"]);
+  const starterTypes = new Set(["BRAND_INTRO", "CHAPTER", "SCREENSHOT", "CALLOUT", "SUMMARY", "BRAND_OUTRO", "TITLE", "CTA", "DEVICE_SHOWCASE"]);
+  return starterTitles.has(scene.title) && starterTypes.has(scene.type);
 }
 
 function sentence(value: string) {

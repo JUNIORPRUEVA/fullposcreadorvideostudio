@@ -1,0 +1,8 @@
+{
+  "_comment": "Optional. Copy this file to 'captions.json' in this folder to pin exact on-screen wording per screenshot. Keys are file names exactly as they appear in input/images/. Anything you list here wins over the automatic guess. Delete a line to fall back to the automatic caption.",
+  "01-productos.png": "Control de inventario",
+  "02-facturacion.png": "Facturación rápida",
+  "03-pos-mobile.png": "Tu negocio en el bolsillo",
+  "04-venta-rapida.png": "Gestiona tus ventas",
+  "05-reportes.png": "Información en un solo lugar"
+}

@@ -82,8 +82,13 @@ export function validateProjectInput(body: Record<string, unknown>, partial = fa
   const input: Partial<ProjectInput> = {};
   const required = !partial;
 
-  for (const field of ["name", "headline", "offer", "price", "website"] as const) {
-    const value = cleanString(body[field], field, required);
+  const name = cleanString(body.name, "name", required);
+  if (name !== undefined) input.name = name;
+
+  // Contenido opcional: una capacitación o un tutorial no necesitan oferta, precio
+  // ni sitio web. Solo el nombre del proyecto es obligatorio.
+  for (const field of ["headline", "offer", "price", "website"] as const) {
+    const value = cleanString(body[field], field, false);
     if (value !== undefined) input[field] = value;
   }
 

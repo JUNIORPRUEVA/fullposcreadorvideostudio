@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { hashPassword, verifyPassword } from "./password.js";
-import { signAuthToken } from "./auth-token.js";
+import { authTokenNeedsRenewal, authTokenTtlSeconds, signAuthToken, verifyAuthToken } from "./auth-token.js";
 
 const ownerKey = "auth.owner";
 
@@ -42,8 +42,10 @@ export class AuthService {
     if (!owner || owner.email.toLowerCase() !== email || !(await verifyPassword(password, owner.passwordHash))) {
       throw new UnauthorizedException("Invalid credentials.");
     }
+    const ttlSeconds = authTokenTtlSeconds();
     return {
-      token: signAuthToken({ sub: owner.id, email: owner.email, role: owner.role }, authSecret()),
+      token: signAuthToken({ sub: owner.id, email: owner.email, role: owner.role }, authSecret(), ttlSeconds),
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       user: { email: owner.email, role: owner.role }
     };
   }
@@ -51,10 +53,13 @@ export class AuthService {
   async me(authorization?: string) {
     const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
     if (!token) throw new UnauthorizedException("Missing token.");
-    const { verifyAuthToken } = await import("./auth-token.js");
     const payload = verifyAuthToken(token, authSecret());
     if (!payload) throw new UnauthorizedException("Invalid token.");
-    return { email: payload.email, role: payload.role };
+    // Sesion deslizante: si al token le queda menos de la mitad de su vida, se emite uno
+    // nuevo para que el estudio no vuelva a pedir la sesion mientras se use.
+    if (!authTokenNeedsRenewal(payload)) return { email: payload.email, role: payload.role };
+    const renewed = signAuthToken({ sub: payload.sub, email: payload.email, role: payload.role }, authSecret());
+    return { email: payload.email, role: payload.role, token: renewed };
   }
 
   private async getOwner() {

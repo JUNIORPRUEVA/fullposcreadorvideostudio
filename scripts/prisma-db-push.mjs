@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { assertDestructiveDbAllowed } from "./dev/db-guard.mjs";
+
+assertDestructiveDbAllowed("npm run db:push (prisma db push)");
 
 const root = process.cwd();
 const schema = path.join(root, "apps", "api", "prisma", "schema.prisma");

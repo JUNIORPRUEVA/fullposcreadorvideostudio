@@ -1,11 +1,28 @@
 import React from "react";
 import { AbsoluteFill, Audio, Easing, Img, interpolate, OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CustomSubtitleCue, RenderPayload, VideoScene } from "@fullpos-ad-studio/shared";
+import {
+  CAPTION_PRIMARY_SIZE,
+  CAPTION_SECONDARY_SIZE,
+  COURSE_SCENE_COMPOSITION,
+  SCREENSHOT_RADIUS,
+  SCREENSHOT_SHADOW,
+  footerCaption,
+  isMeaningfulCaption,
+  railModule,
+  readableTextOn,
+  sceneNumberLabel,
+  screenshotFrame
+} from "@fullpos-ad-studio/shared";
 import { defaultRenderPayload } from "../payload.js";
 
 const ink = "#0b1728";
 const blue = "#1457d9";
 const cyan = "#10a8c9";
+/* Fondos solidos de marca: la captura (normalmente clara) siempre contrasta
+   contra un navy profundo. Nunca se usa la propia captura como fondo. */
+const SCENE_CANVAS_BACKGROUND = "#0a1526";
+const SCENE_FOOTER_BACKGROUND = "#060d18";
 
 function ease(frame: number, input: [number, number], output: [number, number]) {
   return interpolate(frame, input, output, { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
@@ -128,9 +145,35 @@ function MediaSurface({ payload, scene, mode }: { payload: RenderPayload; scene:
   const endAt = scene.trimEndSeconds ? Math.max(startFrom + 1, Math.round(scene.trimEndSeconds * fps)) : undefined;
   const originX = `${focus.x * 100}%`;
   const originY = `${focus.y * 100}%`;
+  /*
+   * La captura es sagrada: se muestra con su tamano natural limitado por el
+   * marco (equivalente a "contain"), sin opacidad, sin filtros y sin blur. El
+   * marco se ajusta exactamente a la imagen, asi las anotaciones (que se
+   * guardan en el espacio 1920x1080 de la captura) caen sobre ella.
+   */
+  const mediaStyle: React.CSSProperties = {
+    display: "block",
+    width: "auto",
+    height: "auto",
+    maxWidth: "100%",
+    maxHeight: "100%",
+    transform: `scale(${focus.scale})`,
+    transformOrigin: `${originX} ${originY}`
+  };
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", borderRadius: mode === "vertical" ? 56 : 18, background: "#fff" }}>
-      <div style={{ position: "absolute", inset: 0, overflow: "hidden", clipPath: `inset(${crop.top ?? 0}% ${crop.right ?? 0}% ${crop.bottom ?? 0}% ${crop.left ?? 0}%)` }}>
+    <div
+      style={{
+        position: "relative",
+        display: "inline-grid",
+        maxWidth: "100%",
+        maxHeight: "100%",
+        borderRadius: mode === "vertical" ? 48 : SCREENSHOT_RADIUS,
+        overflow: "hidden",
+        background: "#ffffff",
+        boxShadow: SCREENSHOT_SHADOW
+      }}
+    >
+      <div style={{ overflow: "hidden", clipPath: `inset(${crop.top ?? 0}% ${crop.right ?? 0}% ${crop.bottom ?? 0}% ${crop.left ?? 0}%)` }}>
         {src ? (
           isVideo ? (
             <OffthreadVideo
@@ -138,14 +181,14 @@ function MediaSurface({ payload, scene, mode }: { payload: RenderPayload; scene:
               startFrom={startFrom}
               endAt={endAt}
               muted={!scene.sourceAudioEnabled}
-              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", transform: `scale(${focus.scale})`, transformOrigin: `${originX} ${originY}` }}
+              style={mediaStyle}
             />
           ) : (
-            <Img src={src} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", transform: `scale(${focus.scale})`, transformOrigin: `${originX} ${originY}` }} />
+            <Img src={src} style={mediaStyle} />
           )
-        ) : <div style={{ width: "100%", height: "100%", background: "#eef6ff" }} />}
+        ) : <div style={{ width: 960, height: 540, background: "#eef6ff" }} />}
       </div>
-      <CalloutLayer scene={scene} width={mode === "vertical" ? 1080 : 1920} height={mode === "vertical" ? 1920 : 1080} />
+      <CalloutLayer scene={scene} width={1920} height={1080} />
     </div>
   );
 }
@@ -218,7 +261,8 @@ function CalloutLayer({ scene, width, height }: { scene: VideoScene; width: numb
 
 function subtitleCues(scene: VideoScene, mode: RenderPayload["subtitleMode"]): CustomSubtitleCue[] {
   if (mode === "OFF") return [];
-  if (mode === "CUSTOM") return scene.customSubtitles ?? [];
+  // La base de datos guarda los subtitulos como texto: nunca asumir un array.
+  if (mode === "CUSTOM") return Array.isArray(scene.customSubtitles) ? scene.customSubtitles : [];
   const text = scene.narrationScript?.trim();
   if (!text) return [];
   const words = text.split(/\s+/);
@@ -229,12 +273,15 @@ function subtitleCues(scene: VideoScene, mode: RenderPayload["subtitleMode"]): C
   return chunks.map((chunk, index) => ({ start: (duration / chunks.length) * index, end: (duration / chunks.length) * (index + 1), text: chunk }));
 }
 
-function Subtitles({ scene, mode, vertical }: { scene: VideoScene; mode: RenderPayload["subtitleMode"]; vertical: boolean }) {
+function Subtitles({ scene, mode, vertical, suppressText }: { scene: VideoScene; mode: RenderPayload["subtitleMode"]; vertical: boolean; suppressText?: string }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const seconds = frame / fps;
   const cue = subtitleCues(scene, mode).find((item) => seconds >= item.start && seconds <= item.end);
   if (!cue) return null;
+  // Fase 11: no duplicar el texto que ya se muestra en el footer.
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,;:]+$/, "");
+  if (suppressText && normalize(cue.text) === normalize(suppressText)) return null;
   return <div style={{ position: "absolute", left: vertical ? "8%" : "16%", right: vertical ? "8%" : "16%", bottom: vertical ? 96 : 54, textAlign: "center", background: "rgba(8,18,32,.80)", color: "white", borderRadius: 12, padding: vertical ? "16px 20px" : "12px 18px", fontFamily: "Inter, Segoe UI, Arial", fontSize: vertical ? 30 : 25, lineHeight: 1.25 }}>{cue.text}</div>;
 }
 
@@ -242,40 +289,61 @@ function SceneAudio({ scene }: { scene: VideoScene }) {
   return scene.narrationAudioPath ? <Audio src={scene.narrationAudioPath} volume={1} /> : null;
 }
 
-function InstructionScene({ payload, scene, mode }: { payload: RenderPayload; scene: VideoScene; mode: "vertical" | "course" }) {
+function InstructionScene({ payload, scene, mode, index }: { payload: RenderPayload; scene: VideoScene; mode: "vertical" | "course"; index: number }) {
   const isCourse = mode === "course";
+  const caption = footerCaption(scene);
+  if (isCourse) {
+    const composition = COURSE_SCENE_COMPOSITION;
+    const box = screenshotFrame(composition);
+    const module = railModule(scene);
+    const rail = payload.brandProfile?.primaryColor ?? blue;
+    const accent = payload.brandProfile?.secondaryColor ?? cyan;
+    const railText = readableTextOn(rail);
+    const canvas = SCENE_CANVAS_BACKGROUND;
+    return (
+      <AbsoluteFill style={{ background: canvas, overflow: "hidden", fontFamily: "Inter, Segoe UI, Arial" }}>
+        <SceneAudio scene={scene} />
+        {/* Fase 5/6: rail de color SOLIDO de marca, sin blur, sin imagen de fondo y
+            sin texto narrativo: solo marca, modulo y numero de escena. */}
+        <div style={{ position: "absolute", left: 0, top: 0, width: composition.railWidth, height: composition.canvasHeight - composition.footerHeight, background: rail, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "44px 30px 40px" }}>
+          <div>
+            <div style={{ width: 54, height: 54, borderRadius: 15, display: "grid", placeItems: "center", fontWeight: 900, fontSize: 22, color: railText, background: "rgba(255,255,255,.16)" }}>{initialsFor(payload.brand.name)}</div>
+            <div style={{ marginTop: 20, color: railText, fontSize: 23, lineHeight: 1.15, fontWeight: 900, letterSpacing: .6 }}>{payload.brand.name.toUpperCase().slice(0, 14)}</div>
+            {module ? <div style={{ marginTop: 8, color: railText, opacity: .78, fontSize: 16, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase" }}>{module}</div> : null}
+          </div>
+          <div style={{ color: railText, opacity: .82, fontSize: 58, lineHeight: 1, fontWeight: 900, letterSpacing: 1 }}>{sceneNumberLabel(index)}</div>
+        </div>
+        {/* La captura ocupa ~81% del ancho: es la protagonista, sin recorte. */}
+        <div style={{ position: "absolute", left: box.x, top: box.y, width: box.width, height: box.height, display: "grid", placeItems: "center" }}>
+          <MediaSurface payload={payload} scene={scene} mode="course" />
+        </div>
+        {/* Fase 8/9/10: todo el texto narrativo vive en el footer, discreto. */}
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: composition.footerHeight, background: SCENE_FOOTER_BACKGROUND, borderTop: "1px solid rgba(255,255,255,.09)", display: "flex", alignItems: "center", gap: 16, paddingLeft: composition.railWidth + composition.margin, paddingRight: composition.margin }}>
+          <div style={{ width: 4, height: 34, borderRadius: 2, background: accent, flex: "0 0 auto" }} />
+          <div style={{ minWidth: 0 }}>
+            {caption.primary ? <div style={{ color: "#f3f8ff", fontSize: CAPTION_PRIMARY_SIZE, fontWeight: 820, lineHeight: 1.18, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 1420 }}>{caption.primary}</div> : null}
+            {caption.secondary ? <div style={{ color: "#a6bcda", fontSize: CAPTION_SECONDARY_SIZE, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 1420 }}>{caption.secondary}</div> : null}
+          </div>
+        </div>
+        <Subtitles scene={scene} mode={payload.subtitleMode} vertical={false} suppressText={caption.primary} />
+      </AbsoluteFill>
+    );
+  }
   return (
-    <AbsoluteFill style={{ background: isCourse ? "#f4f8fd" : "linear-gradient(160deg, #edf6ff, #ffffff)", overflow: "hidden", fontFamily: "Inter, Segoe UI, Arial" }}>
+    <AbsoluteFill style={{ background: "linear-gradient(160deg, #edf6ff, #ffffff)", overflow: "hidden", fontFamily: "Inter, Segoe UI, Arial" }}>
       <SceneAudio scene={scene} />
-      {isCourse ? (
-        <>
-          <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 76, background: "#ffffff", borderBottom: "1px solid #d8e5f4", display: "flex", alignItems: "center", padding: "0 34px", gap: 18 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, display: "grid", placeItems: "center", color: "white", fontWeight: 900, background: `linear-gradient(135deg, ${payload.brandProfile?.primaryColor ?? blue}, ${payload.brandProfile?.secondaryColor ?? cyan})` }}>{initialsFor(payload.brand.name)}</div>
-            <strong style={{ color: ink, fontSize: 21 }}>{payload.brand.name}</strong>
-            <span style={{ color: "#60758d", fontSize: 18 }}>{scene.chapter ?? "Capacitación"}</span>
-          </div>
-          <div style={{ position: "absolute", left: 58, top: 116, width: 360, color: ink }}>
-            <div style={{ fontSize: 18, color: blue, fontWeight: 820 }}>{scene.chapter ?? "Paso"}</div>
-            <div style={{ marginTop: 10, fontSize: 42, lineHeight: 1.05, fontWeight: 900 }}>{scene.title}</div>
-            <p style={{ marginTop: 18, color: "#60758d", fontSize: 22, lineHeight: 1.36 }}>{scene.narrationScript}</p>
-          </div>
-          <div style={{ position: "absolute", right: 58, top: 116, width: 1390, height: 782, borderRadius: 24, background: "#ffffff", padding: 14, boxShadow: "0 40px 110px rgba(8,18,32,.14)", border: "1px solid #dbe7f5" }}>
-            <MediaSurface payload={payload} scene={scene} mode="course" />
-          </div>
-          <Subtitles scene={scene} mode={payload.subtitleMode} vertical={false} />
-        </>
-      ) : (
-        <>
-          <div style={{ position: "absolute", left: 86, right: 86, top: 98 }}>
-            <div style={{ fontSize: 58, lineHeight: 1.02, fontWeight: 900, color: ink }}>{scene.title}</div>
-          </div>
-          <div style={{ position: "absolute", left: 172, top: 330, width: 736, height: 1320, borderRadius: 74, padding: 16, background: "linear-gradient(145deg, #101b2e, #030711)", boxShadow: "0 80px 180px rgba(5,14,29,.35)" }}>
-            <MediaSurface payload={payload} scene={scene} mode="vertical" />
-          </div>
-          <Subtitles scene={scene} mode={payload.subtitleMode} vertical />
-          <BrandBug payload={payload} />
-        </>
-      )}
+      {/* Fase 7: el titulo solo se pinta si aporta valor. */}
+      {isMeaningfulCaption(scene.title) ? (
+        <div style={{ position: "absolute", left: 86, right: 86, top: 98 }}>
+          <div style={{ fontSize: 58, lineHeight: 1.02, fontWeight: 900, color: ink }}>{scene.title}</div>
+        </div>
+      ) : null}
+      {/* Marco oscuro: da contraste a capturas claras sin tocarlas. */}
+      <div style={{ position: "absolute", left: 172, top: 330, width: 736, height: 1320, borderRadius: 74, padding: 16, background: "linear-gradient(145deg, #101b2e, #030711)", boxShadow: "0 80px 180px rgba(5,14,29,.35)", display: "grid", placeItems: "center" }}>
+        <MediaSurface payload={payload} scene={scene} mode="vertical" />
+      </div>
+      <Subtitles scene={scene} mode={payload.subtitleMode} vertical />
+      <BrandBug payload={payload} />
     </AbsoluteFill>
   );
 }
@@ -284,7 +352,7 @@ function SceneRenderer({ payload, scene, mode, index }: { payload: RenderPayload
   if (scene.type === "BRAND_INTRO" || scene.type === "TITLE") return <BrandIntro payload={payload} scene={scene} />;
   if (scene.type === "BRAND_OUTRO" || scene.type === "CTA" || scene.type === "SUMMARY") return <BrandOutro payload={payload} scene={scene} />;
   if (scene.type === "CHAPTER" || scene.chapterTitleEnabled) return <ChapterCard payload={payload} scene={scene} index={index} />;
-  return <InstructionScene payload={payload} scene={scene} mode={mode} />;
+  return <InstructionScene payload={payload} scene={scene} mode={mode} index={index} />;
 }
 
 function Timeline({ payload, mode }: { payload: RenderPayload; mode: "vertical" | "course" }) {

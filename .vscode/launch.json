@@ -2,20 +2,40 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FullPOS Video Studio API + Web (Chrome)",
+      "name": "FULLPOS VIDEO STUDIO — LOCAL DEV",
       "type": "pwa-chrome",
       "request": "launch",
-      "url": "http://localhost:3000",
+      "url": "http://localhost:3000/",
       "webRoot": "${workspaceFolder}/apps/web",
-      "preLaunchTask": "dev:full"
+      "sourceMaps": true,
+      "preLaunchTask": "Studio: Local Dev",
+      "postDebugTask": "Studio: Stop Dev",
+      "presentation": {
+        "group": "studio",
+        "order": 1
+      }
     },
     {
-      "name": "FullPOS Video Studio Web Only (Chrome)",
-      "type": "pwa-chrome",
-      "request": "launch",
-      "url": "http://localhost:3000",
-      "webRoot": "${workspaceFolder}/apps/web",
-      "preLaunchTask": "dev:web"
+      "name": "Studio: API Debug (Node attach)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "cwd": "${workspaceFolder}/apps/api",
+      "sourceMaps": true,
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/**",
+        "!**/node_modules/**"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "preLaunchTask": "Studio: Local Dev",
+      "presentation": {
+        "group": "studio",
+        "order": 2
+      }
     }
-  ]
+  ],
+  "compounds": []
 }

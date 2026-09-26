@@ -10,12 +10,18 @@ const servers = [
   {
     name: "backend",
     workspace: "@fullpos-ad-studio/api",
-    url: "http://localhost:4000/projects"
+    url: "http://localhost:4000/health",
+    env: {
+      PORT: "4000"
+    }
   },
   {
     name: "frontend",
     workspace: "@fullpos-ad-studio/web",
-    url: "http://localhost:3000"
+    url: "http://localhost:3000",
+    env: {
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:4000"
+    }
   }
 ];
 
@@ -25,10 +31,14 @@ const started = [];
 for (const server of servers) {
   const out = path.join(logsDir, `${server.name}.out.log`);
   const err = path.join(logsDir, `${server.name}.err.log`);
+  const envBlock = Object.entries(server.env ?? {})
+    .map(([key, value]) => `$env:${key}='${String(value).replaceAll("'", "''")}'`)
+    .join("; ");
+  const command = `${envBlock}; npm.cmd run dev --workspace ${server.workspace}`;
   const ps = [
     "$p = Start-Process",
-    "-FilePath 'npm.cmd'",
-    `-ArgumentList @('run','dev','--workspace','${server.workspace}')`,
+    "-FilePath 'powershell.exe'",
+    `-ArgumentList @('-NoProfile','-Command','${command.replaceAll("'", "''")}')`,
     `-WorkingDirectory '${root.replaceAll("'", "''")}'`,
     `-RedirectStandardOutput '${out.replaceAll("'", "''")}'`,
     `-RedirectStandardError '${err.replaceAll("'", "''")}'`,

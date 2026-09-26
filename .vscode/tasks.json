@@ -2,36 +2,8 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "dev:web",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/scripts/vscode-dev-web.ps1"
-      ],
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "next",
-        "pattern": {
-          "regexp": "^$"
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".*",
-          "endsPattern": "(Ready in|Local:|localhost:3000)"
-        }
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": false
-      }
-    },
-    {
-      "label": "dev:api",
+      "label": "Studio: API Dev",
+      "detail": "FullPOS Video Studio API (NestJS + Prisma) in watch mode, with the Node inspector on 127.0.0.1:9229 so backend breakpoints work.",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -43,30 +15,209 @@
       ],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "api",
+        "owner": "studio-api",
         "pattern": {
           "regexp": "^$"
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": ".*",
-          "endsPattern": "(Video Studio API listening|Nest application successfully started)"
+          "beginsPattern": "\\[Studio API\\].*",
+          "endsPattern": "(STUDIO_API_READY|Video Studio API listening)"
         }
       },
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
-        "clear": false
+        "name": "Studio API",
+        "clear": false,
+        "group": "studio"
       }
     },
     {
-      "label": "dev:full",
+      "label": "Studio: Web Dev",
+      "detail": "Next.js studio dev server on http://localhost:3000 (Fast Refresh) pointing at the LOCAL API.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/vscode-dev-web.ps1"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "studio-web",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "\\[Studio Web\\].*",
+          "endsPattern": "(STUDIO_WEB_READY|Ready in|Local:)"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio Web",
+        "clear": false,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: DB Tunnel",
+      "detail": "Ensures the SSH forward required by DATABASE_URL. Never runs migrations, seeds, resets or schema pushes.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/dev/db-tunnel.ps1"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "studio-db",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "\\[Studio DB\\].*",
+          "endsPattern": "STUDIO_DB_TUNNEL_READY"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio DB",
+        "clear": false,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: Local Dev",
+      "detail": "Starts the whole local stack (DB tunnel + API + Web) and only reports ready when API /health and the web URL really answer.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/dev/wait-for-studio.ps1",
+        "-TimeoutSeconds",
+        "240",
+        "-StayAlive"
+      ],
       "dependsOn": [
-        "dev:api",
-        "dev:web"
+        "Studio: DB Tunnel",
+        "Studio: API Dev",
+        "Studio: Web Dev"
       ],
       "dependsOrder": "parallel",
-      "problemMatcher": []
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "studio-ready",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "\\[Studio\\].*",
+          "endsPattern": "STUDIO_DEV_READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "name": "Studio Ready",
+        "clear": false,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: Stop Dev",
+      "detail": "Stops only the local processes started by this studio dev environment (API, Web, DB tunnel).",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/dev/stop-studio.ps1",
+        "-Force"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio Stop",
+        "clear": true,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: Health Check",
+      "detail": "Read-only report: API, Web, DB tunnel, Node inspector, database target (sanitized) and FFmpeg/FFprobe.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/dev/health-check.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio Health",
+        "clear": true,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: Install Dependencies",
+      "detail": "npm install at the repo root (workspaces). Run manually, never as part of F5.",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": [
+        "install"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio Install",
+        "clear": true,
+        "group": "studio"
+      }
+    },
+    {
+      "label": "Studio: Typecheck",
+      "detail": "TypeScript typecheck for shared, video, api and web workspaces.",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "group": "test",
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "name": "Studio Typecheck",
+        "clear": true,
+        "group": "studio"
+      }
     }
   ]
 }

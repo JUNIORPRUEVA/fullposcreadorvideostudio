@@ -1,0 +1,3 @@
+# Optional: background music (MP3 / WAV / M4A). The first file alphabetically is used.
+# If this folder is empty the video is rendered without audio.
+# Nothing is ever downloaded automatically. Contents are gitignored.

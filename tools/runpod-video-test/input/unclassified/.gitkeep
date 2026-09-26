@@ -1,0 +1,13 @@
+# Assets that are NOT screenshots and NOT confirmed brand material.
+#
+# `ep-logo.png` ended up here: it is a glossy "EP" mark on an opaque dark
+# background, which does not match FullPOS Cloud / FULLTECH, SRL branding.
+#
+# Two reasons it is not used yet:
+#   1. It is not FullPOS branding, so putting it on a public ad would misrepresent
+#      the product (AGENTS.md: do not invent brand material).
+#   2. Its background is opaque, so composited on the blue intro card it would look
+#      like a dark rectangle rather than a logo mark.
+#
+# To use it: save a transparent PNG (or tell the agent to blend it), then move it to
+# `../logo/` and re-run `--compose-only` (free - no RunPod jobs are created).

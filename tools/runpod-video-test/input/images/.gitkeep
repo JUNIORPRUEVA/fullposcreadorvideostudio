@@ -1,0 +1,4 @@
+# Drop real FullPOS screenshots here (PNG / JPG / JPEG / WEBP).
+# Files are picked up in alphabetical order, which becomes the video order.
+# Recommended naming: 01-facturacion.png, 02-productos.png, 03-reportes.png ...
+# This folder's contents are gitignored: real product screenshots are never committed.

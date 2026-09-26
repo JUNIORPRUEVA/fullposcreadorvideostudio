@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# RunPod video lab — generated / private artifacts.
+# Source code (scripts/, README.md) is ALWAYS committed.
+# ---------------------------------------------------------------------------
+
+# Generated media and per-run artifacts
+output/
+temp/
+
+# Private input material: real product screenshots, brand assets, audio.
+# The folders are tracked (via .gitkeep) but their contents are not.
+input/images/*
+input/logo/*
+input/audio/*
+input/unclassified/*
+!input/images/.gitkeep
+!input/logo/.gitkeep
+!input/audio/.gitkeep
+!input/unclassified/.gitkeep
+
+# Raw media in any location
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.m4a
+*.mp3
+*.wav
+
+# Provider responses, job records, logs, interim frames
+jobs.json
+*.job.json
+*.provider.json
+logs/
+*.log
+
+# Temporary review pages (regenerated on demand)
+review.html
+review-final.html
